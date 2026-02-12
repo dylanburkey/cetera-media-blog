@@ -1,10 +1,10 @@
 ---
 import AdminLayout from '../../../layouts/AdminLayout.astro';
 import { isAuthenticated } from '../../../lib/auth';
-import ImageToolbar from './components/ImageToolbar.astro';
-import LayoutTemplates from './components/LayoutTemplates.astro';
-import EditorToolbar from './components/EditorToolbar.astro';
-import TextLayouts from './components/TextLayouts.astro';
+import ImageToolbar from '../../../components/editor/ImageToolbar.astro';
+import LayoutTemplates from '../../../components/editor/LayoutTemplates.astro';
+import EditorToolbar from '../../../components/editor/EditorToolbar.astro';
+import TextLayouts from '../../../components/editor/TextLayouts.astro';
 
 // Check authentication
 const auth = await isAuthenticated(Astro);
