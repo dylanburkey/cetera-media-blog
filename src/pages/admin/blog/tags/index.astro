@@ -1,0 +1,564 @@
+---
+import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import { isAuthenticated } from '../../../../lib/auth';
+
+// Check authentication
+const auth = await isAuthenticated(Astro);
+// if (!auth.authenticated) {
+//   return Astro.redirect('/admin/login');
+// }
+
+// Fetch tags from database
+let tags = [];
+let error = null;
+
+try {
+  const db = Astro.locals.runtime?.env?.DB;
+  if (db) {
+    const result = await db.prepare(`
+      SELECT 
+        t.*,
+        (SELECT COUNT(*) FROM blog_post_tags WHERE tag_id = t.id) as post_count
+      FROM blog_tags t
+      ORDER BY t.name ASC
+    `).all();
+    
+    tags = result.results || [];
+  }
+} catch (err) {
+  console.error('Error fetching tags:', err);
+  error = err.message;
+}
+---
+
+<AdminLayout title="Tags">
+  <div class="tags-admin">
+    <header class="admin-header">
+      <div class="header-content">
+        <div class="breadcrumb">
+          <a href="/admin/blog">Blog</a>
+          <span>/</span>
+          <span>Tags</span>
+        </div>
+        <h1>Tags</h1>
+        <p class="subtitle">Add keywords to help organize and find posts</p>
+      </div>
+      <div class="header-actions">
+        <button type="button" class="btn btn-primary" id="add-tag-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          Add Tag
+        </button>
+      </div>
+    </header>
+
+    {error && (
+      <div class="alert alert-error">
+        <span>Error loading tags: {error}</span>
+      </div>
+    )}
+
+    <div class="tags-container">
+      {tags.length === 0 ? (
+        <div class="empty-state">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+            <line x1="7" y1="7" x2="7.01" y2="7"></line>
+          </svg>
+          <p>No tags yet</p>
+          <button type="button" class="btn btn-primary" id="add-first-btn">
+            Create your first tag
+          </button>
+        </div>
+      ) : (
+        <div class="tags-grid">
+          {tags.map((tag) => (
+            <div class="tag-card" data-id={tag.id}>
+              <div class="tag-info">
+                <span class="tag-name">{tag.name}</span>
+                <code class="tag-slug">{tag.slug}</code>
+                {tag.description && (
+                  <p class="tag-description">{tag.description}</p>
+                )}
+              </div>
+              <div class="tag-meta">
+                <span class="post-count">{tag.post_count} posts</span>
+              </div>
+              <div class="tag-actions">
+                <button type="button" class="btn-icon edit-btn" title="Edit" data-id={tag.id} data-name={tag.name} data-slug={tag.slug} data-description={tag.description || ''}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                  </svg>
+                </button>
+                <button type="button" class="btn-icon delete-btn" title="Delete" data-id={tag.id} data-name={tag.name}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+
+    <!-- Add/Edit Modal -->
+    <div class="modal" id="tag-modal">
+      <div class="modal-backdrop"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 id="modal-title">Add Tag</h2>
+          <button type="button" class="modal-close" id="modal-close">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <form id="tag-form">
+          <input type="hidden" name="id" id="tag-id" />
+          
+          <div class="form-group">
+            <label for="name">Name *</label>
+            <input type="text" id="name" name="name" required placeholder="e.g., JavaScript" />
+          </div>
+          
+          <div class="form-group">
+            <label for="slug">Slug</label>
+            <input type="text" id="slug" name="slug" placeholder="auto-generated from name" />
+            <small>URL-friendly identifier. Leave blank to auto-generate.</small>
+          </div>
+          
+          <div class="form-group">
+            <label for="description">Description</label>
+            <textarea id="description" name="description" rows="2" placeholder="Optional description..."></textarea>
+          </div>
+          
+          <div class="modal-actions">
+            <button type="button" class="btn btn-secondary" id="cancel-btn">Cancel</button>
+            <button type="submit" class="btn btn-primary">Save Tag</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</AdminLayout>
+
+<style>
+  .tags-admin {
+    padding: 2rem;
+  }
+
+  .admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 2rem;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+
+  .breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .breadcrumb a {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  .breadcrumb a:hover {
+    text-decoration: underline;
+  }
+
+  h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  .subtitle {
+    color: var(--color-text-muted);
+    margin: 0.25rem 0 0;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--color-primary);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-secondary {
+    background: var(--color-surface-light);
+    color: var(--color-text);
+  }
+
+  .empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    color: var(--color-text-muted);
+  }
+
+  .empty-state svg {
+    margin-bottom: 1rem;
+    opacity: 0.5;
+  }
+
+  .empty-state p {
+    margin-bottom: 1.5rem;
+    font-size: 1.125rem;
+  }
+
+  .tags-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+  }
+
+  .tag-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    transition: border-color 0.2s;
+  }
+
+  .tag-card:hover {
+    border-color: var(--color-primary);
+  }
+
+  .tag-info {
+    flex: 1;
+  }
+
+  .tag-name {
+    font-weight: 600;
+    font-size: 1rem;
+    display: block;
+    margin-bottom: 0.25rem;
+  }
+
+  .tag-slug {
+    background: var(--color-background);
+    padding: 0.125rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+  }
+
+  .tag-description {
+    color: var(--color-text-muted);
+    font-size: 0.813rem;
+    margin: 0.5rem 0 0;
+    line-height: 1.4;
+  }
+
+  .tag-meta {
+    font-size: 0.813rem;
+    color: var(--color-text-muted);
+  }
+
+  .tag-actions {
+    display: flex;
+    gap: 0.5rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .btn-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-icon:hover {
+    background: var(--color-surface-light);
+    color: var(--color-text);
+  }
+
+  .delete-btn:hover {
+    border-color: var(--color-error);
+    color: var(--color-error);
+  }
+
+  .alert {
+    padding: 1rem;
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+  }
+
+  .alert-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--color-error);
+  }
+
+  /* Modal */
+  .modal {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal.open {
+    display: flex;
+  }
+
+  .modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+  }
+
+  .modal-content {
+    position: relative;
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    width: 100%;
+    max-width: 450px;
+    margin: 1rem;
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.125rem;
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    padding: 0.25rem;
+  }
+
+  .modal-close:hover {
+    color: var(--color-text);
+  }
+
+  #tag-form {
+    padding: 1.5rem;
+  }
+
+  .form-group {
+    margin-bottom: 1.25rem;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  .form-group input,
+  .form-group textarea {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font-size: 0.875rem;
+  }
+
+  .form-group input:focus,
+  .form-group textarea:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .form-group small {
+    display: block;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.25rem;
+  }
+
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 0.75rem;
+    padding-top: 1rem;
+    border-top: 1px solid var(--color-border);
+    margin-top: 1rem;
+  }
+</style>
+
+<script>
+  const modal = document.getElementById('tag-modal');
+  const modalTitle = document.getElementById('modal-title');
+  const form = document.getElementById('tag-form');
+  const addBtn = document.getElementById('add-tag-btn');
+  const addFirstBtn = document.getElementById('add-first-btn');
+  const closeBtn = document.getElementById('modal-close');
+  const cancelBtn = document.getElementById('cancel-btn');
+  const backdrop = modal?.querySelector('.modal-backdrop');
+
+  function openModal(isEdit = false, data: any = {}) {
+    if (!modal || !form) return;
+    
+    modalTitle!.textContent = isEdit ? 'Edit Tag' : 'Add Tag';
+    
+    // Reset form
+    form.reset();
+    
+    // Fill form if editing
+    if (isEdit && data) {
+      (document.getElementById('tag-id') as HTMLInputElement).value = data.id || '';
+      (document.getElementById('name') as HTMLInputElement).value = data.name || '';
+      (document.getElementById('slug') as HTMLInputElement).value = data.slug || '';
+      (document.getElementById('description') as HTMLTextAreaElement).value = data.description || '';
+    }
+    
+    modal.classList.add('open');
+  }
+
+  function closeModal() {
+    modal?.classList.remove('open');
+  }
+
+  // Event listeners
+  addBtn?.addEventListener('click', () => openModal(false));
+  addFirstBtn?.addEventListener('click', () => openModal(false));
+  closeBtn?.addEventListener('click', closeModal);
+  cancelBtn?.addEventListener('click', closeModal);
+  backdrop?.addEventListener('click', closeModal);
+
+  // Auto-generate slug from name
+  document.getElementById('name')?.addEventListener('input', (e) => {
+    const slugInput = document.getElementById('slug') as HTMLInputElement;
+    if (!slugInput.value) {
+      const name = (e.target as HTMLInputElement).value;
+      slugInput.placeholder = name
+        .toLowerCase()
+        .replace(/[^\w\s-]/g, '')
+        .replace(/\s+/g, '-');
+    }
+  });
+
+  // Edit buttons
+  document.querySelectorAll('.edit-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const el = e.currentTarget as HTMLElement;
+      openModal(true, {
+        id: el.dataset.id,
+        name: el.dataset.name,
+        slug: el.dataset.slug,
+        description: el.dataset.description
+      });
+    });
+  });
+
+  // Delete buttons
+  document.querySelectorAll('.delete-btn').forEach(btn => {
+    btn.addEventListener('click', async (e) => {
+      const el = e.currentTarget as HTMLElement;
+      const id = el.dataset.id;
+      const name = el.dataset.name;
+      
+      if (!confirm(`Delete tag "${name}"? Posts will be unlinked but not deleted.`)) {
+        return;
+      }
+      
+      try {
+        const response = await fetch(`/admin/api/tags/delete.json`, {
+          method: 'DELETE',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id })
+        });
+        
+        if (response.ok) {
+          window.location.reload();
+        } else {
+          const data = await response.json();
+          alert(data.error || 'Failed to delete tag');
+        }
+      } catch (error) {
+        alert('Failed to delete tag');
+      }
+    });
+  });
+
+  // Form submission
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    const formData = new FormData(form);
+    const id = formData.get('id');
+    const isEdit = Boolean(id);
+    
+    try {
+      const response = await fetch(`/admin/api/tags/${isEdit ? 'update' : 'create'}.json`, {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        window.location.reload();
+      } else {
+        alert(data.error || 'Failed to save tag');
+      }
+    } catch (error) {
+      alert('Failed to save tag');
+    }
+  });
+
+  // Close modal on escape
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') closeModal();
+  });
+</script>

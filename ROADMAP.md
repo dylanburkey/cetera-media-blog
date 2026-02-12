@@ -14,8 +14,8 @@
 - [x] TypeScript types and exports
 
 ### In Progress 🚧
-- [ ] Categories management page
-- [ ] Tags management page
+- [x] Categories management page ✅
+- [x] Tags management page ✅
 - [ ] User management page
 - [ ] Settings page
 
