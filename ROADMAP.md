@@ -13,11 +13,11 @@
 - [x] Database migrations
 - [x] TypeScript types and exports
 
-### In Progress 🚧
-- [x] Categories management page ✅
-- [x] Tags management page ✅
-- [x] User management page ✅
-- [ ] Settings page
+### Completed ✅
+- [x] Categories management page
+- [x] Tags management page
+- [x] User management page
+- [x] Settings page
 
 ---
 

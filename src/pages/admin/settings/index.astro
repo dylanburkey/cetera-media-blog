@@ -1,0 +1,532 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { isAuthenticated } from '../../../lib/auth';
+
+// Check authentication
+const auth = await isAuthenticated(Astro);
+// if (!auth.authenticated) {
+//   return Astro.redirect('/admin/login');
+// }
+
+// Fetch settings from database
+let settings: Record<string, string> = {};
+let error = null;
+
+try {
+  const db = Astro.locals.runtime?.env?.DB;
+  if (db) {
+    // Check if settings table exists, create if not
+    await db.prepare(`
+      CREATE TABLE IF NOT EXISTS cms_settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `).run();
+    
+    const result = await db.prepare('SELECT key, value FROM cms_settings').all();
+    
+    for (const row of (result.results || [])) {
+      settings[row.key] = row.value;
+    }
+  }
+} catch (err) {
+  console.error('Error fetching settings:', err);
+  error = err.message;
+}
+
+// Default values
+const defaults = {
+  site_name: 'My Blog',
+  site_description: '',
+  site_url: '',
+  posts_per_page: '10',
+  default_post_status: 'draft',
+  comments_enabled: 'true',
+  comments_moderation: 'true',
+  max_upload_size: '5',
+  allowed_file_types: 'jpg,jpeg,png,gif,webp,svg',
+  meta_title_suffix: '',
+  default_og_image: '',
+  google_analytics_id: '',
+  admin_email: '',
+};
+
+// Merge defaults with saved settings
+const config = { ...defaults, ...settings };
+---
+
+<AdminLayout title="Settings">
+  <div class="settings-admin">
+    <header class="admin-header">
+      <div class="header-content">
+        <h1>Settings</h1>
+        <p class="subtitle">Configure your CMS</p>
+      </div>
+    </header>
+
+    {error && (
+      <div class="alert alert-error">
+        <span>Error loading settings: {error}</span>
+      </div>
+    )}
+
+    <div id="save-status" class="save-status"></div>
+
+    <form id="settings-form">
+      <!-- General Settings -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>General</h2>
+          <p>Basic site information</p>
+        </div>
+        <div class="section-content">
+          <div class="form-group">
+            <label for="site_name">Site Name</label>
+            <input type="text" id="site_name" name="site_name" value={config.site_name} placeholder="My Blog" />
+            <small>The name of your site, used in titles and headers</small>
+          </div>
+          
+          <div class="form-group">
+            <label for="site_description">Site Description</label>
+            <textarea id="site_description" name="site_description" rows="2" placeholder="A brief description of your site...">{config.site_description}</textarea>
+            <small>Used for SEO and site metadata</small>
+          </div>
+          
+          <div class="form-group">
+            <label for="site_url">Site URL</label>
+            <input type="url" id="site_url" name="site_url" value={config.site_url} placeholder="https://example.com" />
+            <small>Your site's public URL (for RSS feeds, sitemaps, etc.)</small>
+          </div>
+          
+          <div class="form-group">
+            <label for="admin_email">Admin Email</label>
+            <input type="email" id="admin_email" name="admin_email" value={config.admin_email} placeholder="admin@example.com" />
+            <small>Receives notifications for comments, form submissions, etc.</small>
+          </div>
+        </div>
+      </section>
+
+      <!-- Blog Settings -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>Blog</h2>
+          <p>Post and listing settings</p>
+        </div>
+        <div class="section-content">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="posts_per_page">Posts Per Page</label>
+              <input type="number" id="posts_per_page" name="posts_per_page" value={config.posts_per_page} min="1" max="100" />
+              <small>Number of posts shown on listing pages</small>
+            </div>
+            
+            <div class="form-group">
+              <label for="default_post_status">Default Post Status</label>
+              <select id="default_post_status" name="default_post_status">
+                <option value="draft" selected={config.default_post_status === 'draft'}>Draft</option>
+                <option value="published" selected={config.default_post_status === 'published'}>Published</option>
+              </select>
+              <small>Status for new posts</small>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Comments Settings -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>Comments</h2>
+          <p>Comment system settings</p>
+        </div>
+        <div class="section-content">
+          <div class="form-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="comments_enabled" name="comments_enabled" checked={config.comments_enabled === 'true'} />
+              <span class="toggle-switch"></span>
+              <span class="toggle-text">Enable Comments</span>
+            </label>
+            <small>Allow visitors to comment on posts</small>
+          </div>
+          
+          <div class="form-group">
+            <label class="toggle-label">
+              <input type="checkbox" id="comments_moderation" name="comments_moderation" checked={config.comments_moderation === 'true'} />
+              <span class="toggle-switch"></span>
+              <span class="toggle-text">Require Moderation</span>
+            </label>
+            <small>Comments must be approved before appearing</small>
+          </div>
+        </div>
+      </section>
+
+      <!-- Media Settings -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>Media</h2>
+          <p>Upload and storage settings</p>
+        </div>
+        <div class="section-content">
+          <div class="form-group">
+            <label for="max_upload_size">Max Upload Size (MB)</label>
+            <input type="number" id="max_upload_size" name="max_upload_size" value={config.max_upload_size} min="1" max="100" />
+            <small>Maximum file size for uploads</small>
+          </div>
+          
+          <div class="form-group">
+            <label for="allowed_file_types">Allowed File Types</label>
+            <input type="text" id="allowed_file_types" name="allowed_file_types" value={config.allowed_file_types} placeholder="jpg,jpeg,png,gif,webp" />
+            <small>Comma-separated list of allowed extensions</small>
+          </div>
+        </div>
+      </section>
+
+      <!-- SEO Settings -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>SEO</h2>
+          <p>Search engine optimization</p>
+        </div>
+        <div class="section-content">
+          <div class="form-group">
+            <label for="meta_title_suffix">Title Suffix</label>
+            <input type="text" id="meta_title_suffix" name="meta_title_suffix" value={config.meta_title_suffix} placeholder=" | My Blog" />
+            <small>Appended to page titles (e.g., "Post Title | My Blog")</small>
+          </div>
+          
+          <div class="form-group">
+            <label for="default_og_image">Default Social Image</label>
+            <input type="url" id="default_og_image" name="default_og_image" value={config.default_og_image} placeholder="https://..." />
+            <small>Fallback image for social sharing when post has no cover</small>
+          </div>
+        </div>
+      </section>
+
+      <!-- Analytics Settings -->
+      <section class="settings-section">
+        <div class="section-header">
+          <h2>Analytics</h2>
+          <p>Tracking and analytics</p>
+        </div>
+        <div class="section-content">
+          <div class="form-group">
+            <label for="google_analytics_id">Google Analytics ID</label>
+            <input type="text" id="google_analytics_id" name="google_analytics_id" value={config.google_analytics_id} placeholder="G-XXXXXXXXXX" />
+            <small>Your GA4 measurement ID (leave blank to disable)</small>
+          </div>
+        </div>
+      </section>
+
+      <!-- Save Button -->
+      <div class="form-actions">
+        <button type="submit" class="btn btn-primary" id="save-btn">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+            <polyline points="17 21 17 13 7 13 7 21"></polyline>
+            <polyline points="7 3 7 8 15 8"></polyline>
+          </svg>
+          Save Settings
+        </button>
+      </div>
+    </form>
+  </div>
+</AdminLayout>
+
+<style>
+  .settings-admin {
+    padding: 2rem;
+    max-width: 900px;
+  }
+
+  .admin-header {
+    margin-bottom: 2rem;
+  }
+
+  h1 {
+    font-size: 1.75rem;
+    font-weight: 700;
+    margin: 0;
+  }
+
+  .subtitle {
+    color: var(--color-text-muted);
+    margin: 0.25rem 0 0;
+  }
+
+  .alert {
+    padding: 1rem;
+    border-radius: var(--radius-md);
+    margin-bottom: 1rem;
+  }
+
+  .alert-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: var(--color-error);
+  }
+
+  .save-status {
+    position: fixed;
+    top: 1rem;
+    right: 1rem;
+    padding: 0.75rem 1rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+    z-index: 1000;
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: all 0.3s ease;
+  }
+
+  .save-status.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .save-status.success {
+    background: rgba(16, 185, 129, 0.15);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    color: #10b981;
+  }
+
+  .save-status.error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+  }
+
+  .settings-section {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    margin-bottom: 1.5rem;
+    overflow: hidden;
+  }
+
+  .section-header {
+    padding: 1.25rem 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+    background: var(--color-surface-light);
+  }
+
+  .section-header h2 {
+    font-size: 1rem;
+    font-weight: 600;
+    margin: 0;
+  }
+
+  .section-header p {
+    font-size: 0.813rem;
+    color: var(--color-text-muted);
+    margin: 0.25rem 0 0;
+  }
+
+  .section-content {
+    padding: 1.5rem;
+  }
+
+  .form-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+  }
+
+  .form-group {
+    margin-bottom: 1.5rem;
+  }
+
+  .form-group:last-child {
+    margin-bottom: 0;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+  }
+
+  .form-group input[type="text"],
+  .form-group input[type="url"],
+  .form-group input[type="email"],
+  .form-group input[type="number"],
+  .form-group textarea,
+  .form-group select {
+    width: 100%;
+    padding: 0.625rem 0.75rem;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    color: var(--color-text);
+    font-size: 0.875rem;
+    transition: border-color 0.2s;
+  }
+
+  .form-group input:focus,
+  .form-group textarea:focus,
+  .form-group select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .form-group small {
+    display: block;
+    color: var(--color-text-muted);
+    font-size: 0.75rem;
+    margin-top: 0.375rem;
+  }
+
+  /* Toggle Switch */
+  .toggle-label {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    cursor: pointer;
+    font-weight: 400 !important;
+  }
+
+  .toggle-label input {
+    display: none;
+  }
+
+  .toggle-switch {
+    position: relative;
+    width: 44px;
+    height: 24px;
+    background: var(--color-border);
+    border-radius: 12px;
+    transition: background 0.2s;
+    flex-shrink: 0;
+  }
+
+  .toggle-switch::after {
+    content: '';
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    width: 20px;
+    height: 20px;
+    background: white;
+    border-radius: 50%;
+    transition: transform 0.2s;
+  }
+
+  .toggle-label input:checked + .toggle-switch {
+    background: var(--color-primary);
+  }
+
+  .toggle-label input:checked + .toggle-switch::after {
+    transform: translateX(20px);
+  }
+
+  .toggle-text {
+    font-size: 0.875rem;
+  }
+
+  .form-actions {
+    margin-top: 2rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-primary {
+    background: var(--color-primary);
+    color: white;
+  }
+
+  .btn-primary:hover {
+    filter: brightness(1.1);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+</style>
+
+<script>
+  const form = document.getElementById('settings-form') as HTMLFormElement;
+  const saveBtn = document.getElementById('save-btn') as HTMLButtonElement;
+  const saveStatus = document.getElementById('save-status');
+
+  function showStatus(message: string, type: 'success' | 'error') {
+    if (!saveStatus) return;
+    saveStatus.textContent = message;
+    saveStatus.className = `save-status show ${type}`;
+    
+    setTimeout(() => {
+      saveStatus.classList.remove('show');
+    }, 3000);
+  }
+
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    
+    saveBtn.disabled = true;
+    saveBtn.innerHTML = `
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="spin">
+        <circle cx="12" cy="12" r="10" stroke-dasharray="32" stroke-dashoffset="32"></circle>
+      </svg>
+      Saving...
+    `;
+    
+    const formData = new FormData(form);
+    
+    // Handle checkboxes (convert to 'true'/'false')
+    const checkboxes = ['comments_enabled', 'comments_moderation'];
+    checkboxes.forEach(name => {
+      const checkbox = document.getElementById(name) as HTMLInputElement;
+      formData.set(name, checkbox?.checked ? 'true' : 'false');
+    });
+    
+    try {
+      const response = await fetch('/admin/api/settings/save.json', {
+        method: 'POST',
+        body: formData
+      });
+      
+      const data = await response.json();
+      
+      if (response.ok && data.success) {
+        showStatus('✓ Settings saved', 'success');
+      } else {
+        showStatus(data.error || 'Failed to save settings', 'error');
+      }
+    } catch (error) {
+      showStatus('Failed to save settings', 'error');
+    } finally {
+      saveBtn.disabled = false;
+      saveBtn.innerHTML = `
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+          <polyline points="17 21 17 13 7 13 7 21"></polyline>
+          <polyline points="7 3 7 8 15 8"></polyline>
+        </svg>
+        Save Settings
+      `;
+    }
+  });
+</script>
+
+<style>
+  @keyframes spin {
+    to { transform: rotate(360deg); }
+  }
+  .spin {
+    animation: spin 1s linear infinite;
+  }
+</style>

@@ -30,6 +30,10 @@ export type { BlogPost, BlogCategory, BlogTag, BlogAuthor } from './utils/blog';
 // Auth (for custom implementations)
 export { isAuthenticated, hashPassword, verifyPassword, generateToken } from './lib/auth';
 
+// Settings
+export { getSettings, getSetting, isAllowedFileType, isWithinSizeLimit } from './lib/settings';
+export type { CMSSettings } from './lib/settings';
+
 // Re-export paths for easy reference
 export const paths = {
   // Admin pages
