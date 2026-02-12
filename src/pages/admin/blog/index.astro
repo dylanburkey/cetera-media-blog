@@ -1,0 +1,658 @@
+---
+import AdminLayout from '../../../layouts/AdminLayout.astro';
+import { isAuthenticated } from '../../../lib/auth';
+
+// Check authentication - Bypass for development
+const auth = await isAuthenticated(Astro);
+// Comment out for development
+// if (!auth.authenticated) {
+//   return Astro.redirect('/admin/login');
+// }
+
+// Fetch blog posts from database
+let posts = [];
+let error = null;
+
+try {
+  const db = Astro.locals.runtime.env.DB;
+  const result = await db.prepare(`
+    SELECT 
+      p.*,
+      u.username as author_name,
+      COUNT(DISTINCT pc.category_id) as category_count,
+      COUNT(DISTINCT pt.tag_id) as tag_count,
+      COUNT(DISTINCT v.id) as view_count
+    FROM blog_posts p
+    LEFT JOIN admin_users u ON p.author_id = u.id
+    LEFT JOIN blog_post_categories pc ON p.id = pc.post_id
+    LEFT JOIN blog_post_tags pt ON p.id = pt.post_id
+    LEFT JOIN blog_views v ON p.id = v.post_id
+    GROUP BY p.id
+    ORDER BY p.created_at DESC
+  `).all();
+  
+  posts = result.results || [];
+} catch (err) {
+  console.error('Error fetching blog posts:', err);
+  error = err.message;
+}
+---
+
+<AdminLayout title="Blog Management">
+  <div class="blog-admin">
+    <header class="admin-header">
+      <div class="header-content">
+        <h1>Blog Management</h1>
+        <p class="subtitle">Create and manage blog posts</p>
+      </div>
+      <div class="header-actions">
+        <a href="/admin/blog/categories" class="btn btn-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+          </svg>
+          Categories
+        </a>
+        <a href="/admin/blog/tags" class="btn btn-secondary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"></path>
+            <line x1="7" y1="7" x2="7.01" y2="7"></line>
+          </svg>
+          Tags
+        </a>
+        <a href="/admin/blog/new" class="btn btn-primary">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          New Post
+        </a>
+      </div>
+    </header>
+
+    {error && (
+      <div class="alert alert-error">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+        <span>Error loading posts: {error}</span>
+      </div>
+    )}
+
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+      <div class="stat-card">
+        <div class="stat-icon published">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+            <polyline points="14 2 14 8 20 8"></polyline>
+            <line x1="16" y1="13" x2="8" y2="13"></line>
+            <line x1="16" y1="17" x2="8" y2="17"></line>
+            <polyline points="10 9 9 9 8 9"></polyline>
+          </svg>
+        </div>
+        <div class="stat-content">
+          <span class="stat-value">{posts.filter(p => p.status === 'published').length}</span>
+          <span class="stat-label">Published</span>
+        </div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-icon draft">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+          </svg>
+        </div>
+        <div class="stat-content">
+          <span class="stat-value">{posts.filter(p => p.status === 'draft').length}</span>
+          <span class="stat-label">Drafts</span>
+        </div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-icon views">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+            <circle cx="12" cy="12" r="3"></circle>
+          </svg>
+        </div>
+        <div class="stat-content">
+          <span class="stat-value">{posts.reduce((sum, p) => sum + (p.view_count || 0), 0)}</span>
+          <span class="stat-label">Total Views</span>
+        </div>
+      </div>
+      
+      <div class="stat-card">
+        <div class="stat-icon total">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="3" y1="9" x2="21" y2="9"></line>
+            <line x1="9" y1="21" x2="9" y2="9"></line>
+          </svg>
+        </div>
+        <div class="stat-content">
+          <span class="stat-value">{posts.length}</span>
+          <span class="stat-label">Total Posts</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Posts Table -->
+    <div class="posts-table-container">
+      <div class="table-header">
+        <h2>All Posts</h2>
+        <div class="table-filters">
+          <select id="status-filter" class="filter-select">
+            <option value="">All Status</option>
+            <option value="published">Published</option>
+            <option value="draft">Draft</option>
+            <option value="archived">Archived</option>
+          </select>
+          <input type="text" id="search-posts" class="search-input" placeholder="Search posts..." />
+        </div>
+      </div>
+      
+      <div class="table-wrapper">
+        <table class="posts-table">
+          <thead>
+            <tr>
+              <th>Title</th>
+              <th>Author</th>
+              <th>Status</th>
+              <th>Categories</th>
+              <th>Tags</th>
+              <th>Views</th>
+              <th>Published</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {posts.map(post => (
+              <tr data-status={post.status}>
+                <td>
+                  <div class="post-title-cell">
+                    {post.cover_image && (
+                      <img src={post.cover_image} alt={post.title} class="post-thumbnail" />
+                    )}
+                    <div>
+                      <a href={`/blog/${post.slug}`} target="_blank" class="post-title">
+                        {post.title}
+                      </a>
+                      {post.featured && <span class="badge badge-featured">Featured</span>}
+                    </div>
+                  </div>
+                </td>
+                <td>{post.author_name}</td>
+                <td>
+                  <span class={`status-badge status-${post.status}`}>
+                    {post.status}
+                  </span>
+                </td>
+                <td>
+                  <span class="count-badge">{post.category_count || 0}</span>
+                </td>
+                <td>
+                  <span class="count-badge">{post.tag_count || 0}</span>
+                </td>
+                <td>{post.view_count || 0}</td>
+                <td>
+                  {post.published_at ? new Date(post.published_at).toLocaleDateString() : '-'}
+                </td>
+                <td>
+                  <div class="action-buttons">
+                    <a href={`/admin/blog/edit/${post.id}`} class="btn-icon" title="Edit">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+                      </svg>
+                    </a>
+                    <button class="btn-icon" onclick={`duplicatePost(${post.id})`} title="Duplicate">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                    </button>
+                    <button class="btn-icon btn-danger" onclick={`deletePost(${post.id}, '${post.title.replace(/'/g, "\\'")}')`} title="Delete">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                      </svg>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        
+        {posts.length === 0 && (
+          <div class="empty-state">
+            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+              <polyline points="14 2 14 8 20 8"></polyline>
+            </svg>
+            <h3>No posts yet</h3>
+            <p>Create your first blog post to get started</p>
+            <a href="/admin/blog/new" class="btn btn-primary">Create Post</a>
+          </div>
+        )}
+      </div>
+    </div>
+  </div>
+</AdminLayout>
+
+<style>
+  .blog-admin {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 2rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .header-content h1 {
+    font-size: 2rem;
+    font-weight: 700;
+    margin: 0 0 0.5rem;
+  }
+
+  .subtitle {
+    color: var(--color-text-muted);
+    margin: 0;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all var(--transition-base);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+  }
+
+  .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .btn-primary {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+  }
+
+  .btn-secondary {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+  }
+
+  .alert {
+    padding: 1rem;
+    border-radius: var(--radius-md);
+    margin-bottom: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .alert-error {
+    background: rgba(239, 68, 68, 0.1);
+    border: 1px solid rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+  }
+
+  /* Stats Grid */
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin-bottom: 2rem;
+  }
+
+  .stat-card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 1.5rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+  }
+
+  .stat-icon {
+    width: 48px;
+    height: 48px;
+    border-radius: var(--radius-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .stat-icon.published {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+  }
+
+  .stat-icon.draft {
+    background: rgba(251, 191, 36, 0.1);
+    color: #fbbf24;
+  }
+
+  .stat-icon.views {
+    background: rgba(59, 130, 246, 0.1);
+    color: #3b82f6;
+  }
+
+  .stat-icon.total {
+    background: rgba(139, 92, 246, 0.1);
+    color: #8b5cf6;
+  }
+
+  .stat-content {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .stat-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  .stat-label {
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  /* Table */
+  .posts-table-container {
+    background: var(--color-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .table-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .table-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+    font-weight: 600;
+  }
+
+  .table-filters {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .filter-select,
+  .search-input {
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-background);
+    color: var(--color-text);
+    font-size: 0.875rem;
+  }
+
+  .table-wrapper {
+    overflow-x: auto;
+  }
+
+  .posts-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+
+  .posts-table th {
+    text-align: left;
+    padding: 1rem;
+    background: var(--color-background);
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .posts-table td {
+    padding: 1rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .posts-table tr:last-child td {
+    border-bottom: none;
+  }
+
+  .post-title-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .post-thumbnail {
+    width: 40px;
+    height: 40px;
+    object-fit: cover;
+    border-radius: var(--radius-sm);
+  }
+
+  .post-title {
+    color: var(--color-text);
+    text-decoration: none;
+    font-weight: 600;
+    display: block;
+  }
+
+  .post-title:hover {
+    color: var(--color-primary);
+  }
+
+  .badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    margin-left: 0.5rem;
+  }
+
+  .badge-featured {
+    background: rgba(251, 191, 36, 0.1);
+    color: #fbbf24;
+  }
+
+  .status-badge {
+    display: inline-block;
+    padding: 0.25rem 0.75rem;
+    border-radius: var(--radius-full);
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: capitalize;
+  }
+
+  .status-published {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+  }
+
+  .status-draft {
+    background: rgba(251, 191, 36, 0.1);
+    color: #fbbf24;
+  }
+
+  .status-archived {
+    background: rgba(107, 114, 128, 0.1);
+    color: #6b7280;
+  }
+
+  .count-badge {
+    display: inline-block;
+    padding: 0.25rem 0.5rem;
+    background: var(--color-background);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  .action-buttons {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .btn-icon {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-background);
+    color: var(--color-text);
+    cursor: pointer;
+    transition: all var(--transition-base);
+  }
+
+  .btn-icon:hover {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+  }
+
+  .btn-icon.btn-danger:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+  }
+
+  .empty-state {
+    padding: 4rem 2rem;
+    text-align: center;
+    color: var(--color-text-muted);
+  }
+
+  .empty-state h3 {
+    margin: 1rem 0 0.5rem;
+    font-size: 1.25rem;
+    color: var(--color-text);
+  }
+
+  .empty-state p {
+    margin: 0 0 1.5rem;
+  }
+
+  @media (max-width: 768px) {
+    .admin-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+
+    .table-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+
+    .table-filters {
+      width: 100%;
+      flex-direction: column;
+    }
+
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<script>
+  // Search functionality
+  document.getElementById('search-posts')?.addEventListener('input', (e) => {
+    const searchTerm = e.target.value.toLowerCase();
+    const rows = document.querySelectorAll('.posts-table tbody tr');
+    
+    rows.forEach(row => {
+      const title = row.querySelector('.post-title')?.textContent.toLowerCase();
+      row.style.display = title?.includes(searchTerm) ? '' : 'none';
+    });
+  });
+
+  // Status filter
+  document.getElementById('status-filter')?.addEventListener('change', (e) => {
+    const status = e.target.value;
+    const rows = document.querySelectorAll('.posts-table tbody tr');
+    
+    rows.forEach(row => {
+      if (!status || row.dataset.status === status) {
+        row.style.display = '';
+      } else {
+        row.style.display = 'none';
+      }
+    });
+  });
+
+  // Delete post
+  window.deletePost = async (id, title) => {
+    if (!confirm(`Are you sure you want to delete "${title}"?`)) return;
+    
+    try {
+      const response = await fetch(`/admin/api/blog/delete/${id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json'
+        }
+      });
+      
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        alert('Failed to delete post');
+      }
+    } catch (error) {
+      alert('Error deleting post');
+    }
+  };
+
+  // Duplicate post
+  window.duplicatePost = async (id) => {
+    try {
+      const response = await fetch(`/admin/api/blog/duplicate/${id}`, {
+        method: 'POST'
+      });
+      
+      if (response.ok) {
+        window.location.reload();
+      } else {
+        alert('Failed to duplicate post');
+      }
+    } catch (error) {
+      alert('Error duplicating post');
+    }
+  };
+</script>

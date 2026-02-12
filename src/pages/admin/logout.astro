@@ -1,0 +1,25 @@
+---
+// Logout page - clears session and redirects to login
+
+const token = Astro.cookies.get('admin_session')?.value;
+
+if (token) {
+  try {
+    const db = Astro.locals.runtime?.env?.DB;
+    
+    if (db) {
+      // Delete session from database
+      await db.prepare(
+        'DELETE FROM admin_sessions WHERE token = ?'
+      ).bind(token).run();
+    }
+  } catch (error) {
+    console.error('Logout error:', error);
+  }
+  
+  // Clear cookie
+  Astro.cookies.delete('admin_session', { path: '/' });
+}
+
+return Astro.redirect('/admin/login');
+---

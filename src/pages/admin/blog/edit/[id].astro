@@ -1,0 +1,1912 @@
+---
+import AdminLayout from '../../../../layouts/AdminLayout.astro';
+import { isAuthenticated } from '../../../../lib/auth';
+import ImageToolbar from '../components/ImageToolbar.astro';
+import LayoutTemplates from '../components/LayoutTemplates.astro';
+import EditorToolbar from '../components/EditorToolbar.astro';
+import TextLayouts from '../components/TextLayouts.astro';
+
+// Check authentication
+const auth = await isAuthenticated(Astro);
+if (!auth.authenticated) {
+  return Astro.redirect('/admin/login');
+}
+
+const { id } = Astro.params;
+if (!id) {
+  return Astro.redirect('/admin/blog?error=missing-id');
+}
+
+// Fetch the blog post
+let post = null;
+let categories = [];
+let tags = [];
+let postCategories = [];
+let postTags = [];
+
+try {
+  const db = Astro.locals.runtime.env.DB;
+  
+  // Fetch the blog post
+  const postResult = await db.prepare('SELECT * FROM blog_posts WHERE id = ?').bind(id).first();
+  if (!postResult) {
+    return Astro.redirect('/admin/blog?error=post-not-found');
+  }
+  post = postResult;
+  
+  // Fetch categories and tags
+  const categoriesResult = await db.prepare('SELECT * FROM blog_categories ORDER BY sort_order, name').all();
+  categories = categoriesResult.results || [];
+  
+  const tagsResult = await db.prepare('SELECT * FROM blog_tags ORDER BY name').all();
+  tags = tagsResult.results || [];
+  
+  // Fetch post categories
+  const postCategoriesResult = await db.prepare(`
+    SELECT category_id FROM blog_post_categories WHERE post_id = ?
+  `).bind(id).all();
+  postCategories = (postCategoriesResult.results || []).map(row => row.category_id);
+  
+  // Fetch post tags
+  const postTagsResult = await db.prepare(`
+    SELECT tag_id FROM blog_post_tags WHERE post_id = ?
+  `).bind(id).all();
+  postTags = (postTagsResult.results || []).map(row => row.tag_id);
+} catch (err) {
+  console.error('Error fetching post data:', err);
+  return Astro.redirect('/admin/blog?error=database-error');
+}
+
+// Format published_at for datetime-local input
+let formattedPublishedAt = '';
+if (post.published_at) {
+  const publishedDate = new Date(post.published_at);
+  formattedPublishedAt = publishedDate.getFullYear() + '-' + 
+    String(publishedDate.getMonth() + 1).padStart(2, '0') + '-' +
+    String(publishedDate.getDate()).padStart(2, '0') + 'T' +
+    String(publishedDate.getHours()).padStart(2, '0') + ':' +
+    String(publishedDate.getMinutes()).padStart(2, '0');
+}
+---
+
+<AdminLayout title="Edit Post">
+  <div class="blog-editor">
+    <form id="blog-form" class="editor-form">
+      <input type="hidden" name="post_id" value={post.id} />
+      
+      <header class="editor-header">
+        <div class="header-content">
+          <a href="/admin/blog" class="back-link">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="19" y1="12" x2="5" y2="12"></line>
+              <polyline points="12 19 5 12 12 5"></polyline>
+            </svg>
+            Back to Posts
+          </a>
+          <h1>Edit Post</h1>
+        </div>
+        <div class="header-actions">
+          <button type="button" id="save-draft" class="btn btn-secondary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            Save Draft
+          </button>
+          <button type="submit" class="btn btn-primary">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2L2 7l10 5 10-5-10-5z"></path>
+              <path d="M2 17l10 5 10-5"></path>
+              <path d="M2 12l10 5 10-5"></path>
+            </svg>
+            {post.status === 'published' ? 'Update' : 'Publish'}
+          </button>
+        </div>
+      </header>
+
+      <div class="editor-layout">
+        <!-- Main Editor -->
+        <div class="editor-main">
+          <div class="form-group">
+            <label for="title">Post Title *</label>
+            <input 
+              type="text" 
+              id="title" 
+              name="title" 
+              class="form-input" 
+              placeholder="Enter post title..."
+              value={post.title}
+              required
+            />
+            <div class="slug-preview">
+              <span class="slug-label">URL:</span>
+              <span class="slug-base">/blog/</span>
+              <span id="slug-preview" class="slug-value">{post.slug}</span>
+              <button type="button" id="edit-slug" class="edit-slug-btn">Edit</button>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label for="excerpt">Excerpt</label>
+            <textarea 
+              id="excerpt" 
+              name="excerpt" 
+              class="form-input" 
+              rows="3"
+              placeholder="Brief description of the post..."
+            >{post.excerpt || ''}</textarea>
+          </div>
+
+          <div class="form-group">
+            <label for="content">Content *</label>
+            <div class="editor-toolbar">
+              <button type="button" data-command="bold" class="toolbar-btn" title="Bold">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                  <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
+                  <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
+                </svg>
+              </button>
+              <button type="button" data-command="italic" class="toolbar-btn" title="Italic">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="19" y1="4" x2="10" y2="4"></line>
+                  <line x1="14" y1="20" x2="5" y2="20"></line>
+                  <line x1="15" y1="4" x2="9" y2="20"></line>
+                </svg>
+              </button>
+              <button type="button" data-command="underline" class="toolbar-btn" title="Underline">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M6 3v7a6 6 0 0 0 6 6 6 6 0 0 0 6-6V3"></path>
+                  <line x1="4" y1="21" x2="20" y2="21"></line>
+                </svg>
+              </button>
+              <div class="toolbar-separator"></div>
+              <!-- Font Controls -->
+              <select id="font-family" class="toolbar-select" title="Font Family">
+                <option value="">Font</option>
+                <option value="Inter">Inter (Default)</option>
+                <option value="Source Code Pro">Source Code Pro</option>
+                <option value="Georgia, serif">Georgia</option>
+                <option value="'Times New Roman', serif">Times New Roman</option>
+                <option value="Arial, sans-serif">Arial</option>
+              </select>
+              <select id="font-size" class="toolbar-select" title="Font Size">
+                <option value="">Size</option>
+                <option value="0.875rem">Small</option>
+                <option value="1rem">Normal</option>
+                <option value="1.125rem">Medium</option>
+                <option value="1.25rem">Large</option>
+                <option value="1.5rem">X-Large</option>
+                <option value="2rem">XX-Large</option>
+              </select>
+              <input type="color" id="text-color" class="toolbar-color" title="Text Color" value="#1F2937">
+              <input type="color" id="bg-color" class="toolbar-color" title="Background Color" value="#FFFFFF">
+              <div class="toolbar-separator"></div>
+              <button type="button" data-command="formatBlock" data-value="h2" class="toolbar-btn" title="Heading 2">H2</button>
+              <button type="button" data-command="formatBlock" data-value="h3" class="toolbar-btn" title="Heading 3">H3</button>
+              <button type="button" data-command="formatBlock" data-value="h4" class="toolbar-btn" title="Heading 4">H4</button>
+              <div class="toolbar-separator"></div>
+              <button type="button" data-command="insertUnorderedList" class="toolbar-btn" title="Bullet List">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="8" y1="6" x2="21" y2="6"></line>
+                  <line x1="8" y1="12" x2="21" y2="12"></line>
+                  <line x1="8" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="6" x2="3.01" y2="6"></line>
+                  <line x1="3" y1="12" x2="3.01" y2="12"></line>
+                  <line x1="3" y1="18" x2="3.01" y2="18"></line>
+                </svg>
+              </button>
+              <button type="button" data-command="insertOrderedList" class="toolbar-btn" title="Numbered List">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="10" y1="6" x2="21" y2="6"></line>
+                  <line x1="10" y1="12" x2="21" y2="12"></line>
+                  <line x1="10" y1="18" x2="21" y2="18"></line>
+                  <path d="M4 6h1v4"></path>
+                  <path d="M4 10h2"></path>
+                  <path d="M6 18H4c0-1 2-2 2-3s-1-1.5-2-1"></path>
+                </svg>
+              </button>
+              <div class="toolbar-separator"></div>
+              <button type="button" id="link-button" class="toolbar-btn" title="Insert Link">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+                  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+                </svg>
+              </button>
+              <button type="button" id="insert-image" class="toolbar-btn" title="Insert Image">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                  <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                  <polyline points="21 15 16 10 5 21"></polyline>
+                </svg>
+              </button>
+              <button type="button" id="insert-layout" class="toolbar-btn" title="Insert Image Layout">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="3" width="7" height="7"></rect>
+                  <rect x="14" y="14" width="7" height="7"></rect>
+                  <rect x="3" y="14" width="7" height="7"></rect>
+                </svg>
+              </button>
+              <button type="button" id="text-columns" class="toolbar-btn" title="Text Columns & Rows">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="8" height="18"></rect>
+                  <rect x="13" y="3" width="8" height="18"></rect>
+                </svg>
+              </button>
+              <button type="button" id="text-align" class="toolbar-btn" title="Text Alignment">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="3" y1="6" x2="21" y2="6"/>
+                  <line x1="3" y1="12" x2="21" y2="12"/>
+                  <line x1="3" y1="18" x2="21" y2="18"/>
+                </svg>
+              </button>
+              <button type="button" data-command="formatBlock" data-value="blockquote" class="toolbar-btn" title="Blockquote">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 11v8a1 1 0 0 0 1 1h5l-3-3v-6z"></path>
+                  <path d="M13 11v8a1 1 0 0 0 1 1h5l-3-3v-6z"></path>
+                </svg>
+              </button>
+              <button type="button" data-command="insertHTML" data-value="<pre><code>Code here</code></pre>" class="toolbar-btn" title="Code Block">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="16 18 22 12 16 6"></polyline>
+                  <polyline points="8 6 2 12 8 18"></polyline>
+                </svg>
+              </button>
+              <div class="toolbar-separator"></div>
+              <button type="button" id="cleanup-tools" class="toolbar-btn" title="Cleanup Tools">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/>
+                </svg>
+              </button>
+              <div class="toolbar-separator"></div>
+              <button type="button" data-command="undo" class="toolbar-btn" title="Undo">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M3 7v6h6"></path>
+                  <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"></path>
+                </svg>
+              </button>
+              <button type="button" data-command="redo" class="toolbar-btn" title="Redo">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 7v6h-6"></path>
+                  <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"></path>
+                </svg>
+              </button>
+            </div>
+            <div id="editor" class="wysiwyg-editor" contenteditable="true" set:html={post.content}></div>
+            <textarea id="content" name="content" style="display: none;">{post.content}</textarea>
+          </div>
+        </div>
+
+        <!-- Sidebar -->
+        <div class="editor-sidebar">
+          <!-- Featured Image -->
+          <div class="sidebar-section">
+            <h3>Featured Image</h3>
+            <div id="image-preview" class="image-preview">
+              {post.cover_image ? (
+                <img src={post.cover_image} alt={post.cover_image_alt || ''} />
+              ) : (
+                <div class="image-placeholder">
+                  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+                    <circle cx="8.5" cy="8.5" r="1.5"></circle>
+                    <polyline points="21 15 16 10 5 21"></polyline>
+                  </svg>
+                  <span>No image selected</span>
+                </div>
+              )}
+            </div>
+            <input type="hidden" id="cover_image" name="cover_image" value={post.cover_image || ''} />
+            <input type="text" id="cover_image_alt" name="cover_image_alt" class="form-input" placeholder="Alt text for image" value={post.cover_image_alt || ''} />
+            <button type="button" id="select-image" class="btn btn-secondary btn-block">
+              Select Image
+            </button>
+          </div>
+
+          <!-- Categories -->
+          <div class="sidebar-section">
+            <h3>Categories</h3>
+            <div class="checkbox-group">
+              {categories.map(category => (
+                <label class="checkbox-label">
+                  <input 
+                    type="checkbox" 
+                    name="categories" 
+                    value={category.id}
+                    checked={postCategories.includes(category.id)}
+                  />
+                  <span>{category.name}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <!-- Tags -->
+          <div class="sidebar-section">
+            <h3>Tags</h3>
+            <div class="tags-input-container">
+              <input type="text" id="tag-input" class="form-input" placeholder="Add tags..." />
+              <div id="tag-suggestions" class="tag-suggestions">
+                {tags.map(tag => (
+                  <button 
+                    type="button" 
+                    class="tag-suggestion" 
+                    data-id={tag.id} 
+                    data-name={tag.name}
+                    style={postTags.includes(tag.id) ? 'display: none;' : ''}
+                  >
+                    {tag.name}
+                  </button>
+                ))}
+              </div>
+              <div id="selected-tags" class="selected-tags">
+                {/* Pre-populate selected tags */}
+                {tags.filter(tag => postTags.includes(tag.id)).map(tag => (
+                  <div class="selected-tag">
+                    {tag.name}
+                    <button type="button" onclick={`removeTag('${tag.id}', this)`}>×</button>
+                    <input type="hidden" name="tags[]" value={tag.id} />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <!-- SEO Settings -->
+          <div class="sidebar-section">
+            <h3>SEO Settings</h3>
+            <div class="form-group">
+              <label for="meta_title">Meta Title</label>
+              <input type="text" id="meta_title" name="meta_title" class="form-input" value={post.meta_title || ''} />
+              <span class="char-count"><span id="meta-title-count">{(post.meta_title || '').length}</span>/60</span>
+            </div>
+            <div class="form-group">
+              <label for="meta_description">Meta Description</label>
+              <textarea id="meta_description" name="meta_description" class="form-input" rows="3">{post.meta_description || ''}</textarea>
+              <span class="char-count"><span id="meta-desc-count">{(post.meta_description || '').length}</span>/160</span>
+            </div>
+            <div class="form-group">
+              <label for="meta_keywords">Keywords</label>
+              <input type="text" id="meta_keywords" name="meta_keywords" class="form-input" placeholder="Comma separated" value={post.meta_keywords || ''} />
+            </div>
+          </div>
+
+          <!-- Publishing Options -->
+          <div class="sidebar-section">
+            <h3>Publishing Options</h3>
+            <label class="checkbox-label">
+              <input type="checkbox" id="featured" name="featured" checked={post.featured} />
+              <span>Featured Post</span>
+            </label>
+            <div class="form-group">
+              <label for="published_at">Publish Date</label>
+              <input type="datetime-local" id="published_at" name="published_at" class="form-input" value={formattedPublishedAt} />
+              <button type="button" id="set-now" class="btn btn-secondary btn-sm">Set to Now</button>
+              <span class="help-text">Leave empty for drafts</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </form>
+  </div>
+
+  <!-- Image Upload Modal -->
+  <div id="image-modal" class="modal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Select Image</h2>
+        <button type="button" class="modal-close">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-tabs">
+          <button type="button" class="tab-btn active" data-tab="upload">Upload New</button>
+          <button type="button" class="tab-btn" data-tab="library">Media Library</button>
+          <button type="button" class="tab-btn" data-tab="url">Insert URL</button>
+        </div>
+        
+        <!-- Upload Tab -->
+        <div id="upload-tab" class="tab-content active">
+          <div class="upload-area" id="upload-area">
+            <input type="file" id="image-upload" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp" multiple />
+            <label for="image-upload" class="upload-label">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="17 8 12 3 7 8"></polyline>
+                <line x1="12" y1="3" x2="12" y2="15"></line>
+              </svg>
+              <span>Choose files or drag here</span>
+              <small>JPG, PNG, GIF, WebP up to 10MB each</small>
+            </label>
+          </div>
+          <div id="upload-progress" class="upload-progress"></div>
+        </div>
+        
+        <!-- Media Library Tab -->
+        <div id="library-tab" class="tab-content">
+          <div class="library-search">
+            <input type="text" id="library-search" placeholder="Search images..." class="form-input" />
+          </div>
+          <div id="image-gallery" class="image-gallery">
+            <div class="loading-spinner">Loading images...</div>
+          </div>
+        </div>
+        
+        <!-- URL Tab -->
+        <div id="url-tab" class="tab-content">
+          <div class="url-input-group">
+            <label for="image-url">Image URL:</label>
+            <input type="url" id="image-url" placeholder="https://example.com/image.jpg" class="form-input" />
+            <label for="image-alt">Alt Text:</label>
+            <input type="text" id="image-alt" placeholder="Describe the image..." class="form-input" />
+            <button type="button" id="insert-url-image" class="btn btn-primary">Insert Image</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <ImageToolbar />
+  <LayoutTemplates />
+  <EditorToolbar />
+  <TextLayouts />
+</AdminLayout>
+
+<style>
+  .blog-editor {
+    padding: 2rem;
+    max-width: 1400px;
+    margin: 0 auto;
+  }
+
+  .editor-form {
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+
+  .editor-header {
+    padding: 1.5rem 2rem;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .header-content {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .back-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-text-muted);
+    text-decoration: none;
+    font-size: 0.875rem;
+    transition: color var(--transition-base);
+  }
+
+  .back-link:hover {
+    color: var(--color-primary);
+  }
+
+  .header-content h1 {
+    margin: 0;
+    font-size: 1.5rem;
+    font-weight: 700;
+  }
+
+  .header-actions {
+    display: flex;
+    gap: 1rem;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.25rem;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 600;
+    border: none;
+    cursor: pointer;
+    transition: all var(--transition-base);
+  }
+
+  .btn-secondary {
+    background: var(--color-surface);
+    color: var(--color-text);
+    border: 1px solid var(--color-border);
+  }
+
+  .btn-primary {
+    background: var(--color-primary);
+    color: white;
+  }
+
+  .btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  }
+
+  .btn-block {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .btn-sm {
+    padding: 0.5rem 1rem;
+    font-size: 0.813rem;
+    margin-top: 0.5rem;
+  }
+
+  .help-text {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-top: 0.25rem;
+  }
+
+  /* Enhanced datetime input */
+  input[type="datetime-local"] {
+    cursor: pointer;
+  }
+
+  input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    cursor: pointer;
+    filter: invert(1);
+  }
+
+  .editor-layout {
+    display: grid;
+    grid-template-columns: 1fr 320px;
+  }
+
+  .editor-main {
+    padding: 2rem;
+    border-right: 1px solid var(--color-border);
+  }
+
+  .editor-sidebar {
+    padding: 2rem 1.5rem;
+    background: var(--color-background);
+  }
+
+  .form-group {
+    margin-bottom: 1.5rem;
+  }
+
+  .form-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--color-text);
+  }
+
+  .form-input {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-background);
+    color: var(--color-text);
+    font-size: 1rem;
+    transition: all var(--transition-base);
+  }
+
+  .form-input:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px var(--color-primary-alpha-20);
+  }
+
+  textarea.form-input {
+    resize: vertical;
+    font-family: inherit;
+  }
+
+  .slug-preview {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-top: 0.5rem;
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .slug-label {
+    font-weight: 500;
+  }
+
+  .slug-base {
+    color: var(--color-text-muted);
+  }
+
+  .slug-value {
+    color: var(--color-primary);
+    font-weight: 600;
+  }
+
+  .edit-slug-btn {
+    margin-left: 0.5rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.75rem;
+    cursor: pointer;
+  }
+
+  /* WYSIWYG Editor */
+  .editor-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-bottom: none;
+    border-radius: var(--radius-md) var(--radius-md) 0 0;
+    background: var(--color-background);
+  }
+
+  .toolbar-btn {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--color-text);
+    cursor: pointer;
+    transition: all var(--transition-base);
+  }
+
+  .toolbar-btn:hover {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+  }
+
+  .toolbar-btn.active {
+    background: var(--color-primary);
+    color: white;
+  }
+
+  .toolbar-select {
+    height: 32px;
+    padding: 0 8px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-background);
+    color: var(--color-text);
+    font-size: 0.875rem;
+    cursor: pointer;
+    transition: all var(--transition-base);
+    margin-right: 4px;
+  }
+
+  .toolbar-select:hover {
+    background: var(--color-surface);
+    border-color: var(--color-border);
+  }
+
+  .toolbar-select:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .toolbar-color {
+    width: 32px;
+    height: 32px;
+    padding: 2px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-background);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    margin-right: 4px;
+  }
+
+  .toolbar-color:hover {
+    border-color: var(--color-primary);
+  }
+
+  .toolbar-separator {
+    width: 1px;
+    height: 24px;
+    background: var(--color-border);
+    margin: 0 0.25rem;
+    align-self: center;
+  }
+
+  .wysiwyg-editor {
+    min-height: 400px;
+    max-height: 600px;
+    padding: 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0 0 var(--radius-md) var(--radius-md);
+    background: var(--color-background);
+    color: var(--color-text);
+    font-size: 1rem;
+    line-height: 1.6;
+    overflow-y: auto;
+    overflow-x: hidden;
+    word-wrap: break-word;
+  }
+
+  .wysiwyg-editor:focus {
+    outline: none;
+    border-color: var(--color-primary);
+  }
+
+  .wysiwyg-editor h2 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    margin: 1.5rem 0 1rem;
+  }
+
+  .wysiwyg-editor h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    margin: 1.25rem 0 0.75rem;
+  }
+
+  .wysiwyg-editor h4 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    margin: 1rem 0 0.5rem;
+  }
+
+  .wysiwyg-editor p {
+    margin: 0 0 1rem;
+  }
+
+  .wysiwyg-editor ul,
+  .wysiwyg-editor ol {
+    margin: 0 0 1rem;
+    padding-left: 2rem;
+  }
+
+  .wysiwyg-editor blockquote {
+    margin: 1rem 0;
+    padding: 1rem;
+    border-left: 4px solid var(--color-primary);
+    background: var(--color-surface);
+  }
+
+  .wysiwyg-editor pre {
+    margin: 1rem 0;
+    padding: 1rem;
+    background: var(--color-surface);
+    border-radius: var(--radius-md);
+    overflow-x: auto;
+  }
+
+  .wysiwyg-editor code {
+    font-family: 'Source Code Pro', monospace;
+    font-size: 0.875rem;
+  }
+
+  .wysiwyg-editor img {
+    max-width: 100%;
+    height: auto;
+    border-radius: var(--radius-md);
+    margin: 1rem 0;
+    display: block;
+  }
+  
+  /* Image wrapper to ensure proper spacing */
+  .wysiwyg-editor .blog-image-wrapper {
+    margin: 1rem 0;
+    clear: both;
+  }
+  
+  .wysiwyg-editor .blog-image-wrapper img {
+    display: block;
+    margin: 0;
+  }
+  
+  /* Fix for layout components */
+  .wysiwyg-editor .blog-layout {
+    overflow: hidden;
+    clear: both;
+    margin: 2rem 0;
+  }
+  
+  .wysiwyg-editor .blog-layout img {
+    background: var(--color-surface);
+    min-height: 100px;
+    object-fit: cover;
+  }
+  
+  /* Ensure paragraphs after images are editable */
+  .wysiwyg-editor p {
+    min-height: 1.5rem;
+  }
+  
+  /* Selected image styling */
+  .wysiwyg-editor img.selected-image {
+    outline: 3px solid var(--color-primary);
+    outline-offset: 2px;
+    box-shadow: 0 0 0 6px var(--color-primary-alpha-20);
+  }
+  
+  /* Text column layouts */
+  .wysiwyg-editor .text-columns {
+    margin: 2rem 0;
+  }
+  
+  @media (max-width: 768px) {
+    .wysiwyg-editor .text-columns {
+      grid-template-columns: 1fr !important;
+    }
+  }
+
+  /* Sidebar Sections */
+  .sidebar-section {
+    margin-bottom: 2rem;
+    padding-bottom: 2rem;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .sidebar-section:last-child {
+    border-bottom: none;
+  }
+
+  .sidebar-section h3 {
+    font-size: 0.875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-muted);
+    margin: 0 0 1rem;
+  }
+
+  .image-preview {
+    margin-bottom: 1rem;
+    border: 2px dashed var(--color-border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    background: var(--color-surface);
+  }
+
+  .image-placeholder {
+    padding: 2rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-text-muted);
+  }
+
+  .image-preview img {
+    width: 100%;
+    height: auto;
+    display: block;
+  }
+
+  .checkbox-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .checkbox-label {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.875rem;
+    cursor: pointer;
+  }
+
+  .checkbox-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+  }
+
+  .tag-suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin: 0.5rem 0;
+  }
+
+  .tag-suggestion {
+    padding: 0.25rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-full);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font-size: 0.75rem;
+    cursor: pointer;
+    transition: all var(--transition-base);
+  }
+
+  .tag-suggestion:hover {
+    background: var(--color-primary);
+    border-color: var(--color-primary);
+    color: white;
+  }
+
+  .selected-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+  }
+
+  .selected-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.75rem;
+    background: var(--color-primary);
+    color: white;
+    border-radius: var(--radius-full);
+    font-size: 0.75rem;
+  }
+
+  .selected-tag button {
+    background: none;
+    border: none;
+    color: white;
+    cursor: pointer;
+    padding: 0;
+    margin-left: 0.25rem;
+  }
+
+  .char-count {
+    display: block;
+    text-align: right;
+    font-size: 0.75rem;
+    color: var(--color-text-muted);
+    margin-top: 0.25rem;
+  }
+
+  /* Modal */
+  .modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    padding: 2rem;
+  }
+
+  .modal.active {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .modal-content {
+    background: var(--color-surface);
+    border-radius: var(--radius-lg);
+    max-width: 800px;
+    width: 100%;
+    max-height: 90vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .modal-header {
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--color-border);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .modal-header h2 {
+    margin: 0;
+    font-size: 1.25rem;
+  }
+
+  .modal-close {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    font-size: 1.5rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+
+  .modal-body {
+    padding: 1.5rem;
+    overflow-y: auto;
+  }
+
+  .upload-area {
+    border: 2px dashed var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: 2rem;
+    text-align: center;
+    margin-bottom: 1.5rem;
+    transition: all var(--transition-base);
+  }
+
+  .upload-area.drag-over {
+    border-color: var(--color-primary);
+    background: var(--color-primary-alpha-10);
+  }
+
+  .upload-area input[type="file"] {
+    display: none;
+  }
+
+  .upload-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    color: var(--color-text-muted);
+    cursor: pointer;
+  }
+
+  .upload-label small {
+    font-size: 0.75rem;
+    opacity: 0.7;
+  }
+
+  .modal-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--color-border);
+    margin-bottom: 1rem;
+  }
+
+  .tab-btn {
+    flex: 1;
+    padding: 0.75rem 1rem;
+    border: none;
+    background: transparent;
+    color: var(--color-text-muted);
+    cursor: pointer;
+    transition: all var(--transition-base);
+    border-bottom: 2px solid transparent;
+  }
+
+  .tab-btn.active {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+  }
+
+  .tab-content {
+    display: none;
+  }
+
+  .tab-content.active {
+    display: block;
+  }
+
+  .upload-progress {
+    margin-top: 1rem;
+  }
+
+  .progress-item {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    margin-bottom: 0.5rem;
+  }
+
+  .progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--color-surface);
+    border-radius: var(--radius-full);
+    overflow: hidden;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: var(--color-primary);
+    transition: width var(--transition-base);
+  }
+
+  .library-search {
+    margin-bottom: 1rem;
+  }
+
+  .image-gallery {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 1rem;
+    max-height: 400px;
+    overflow-y: auto;
+  }
+
+  .image-item {
+    position: relative;
+    aspect-ratio: 1;
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    cursor: pointer;
+    transition: transform var(--transition-base);
+    border: 2px solid transparent;
+  }
+
+  .image-item:hover {
+    transform: scale(1.05);
+    border-color: var(--color-primary);
+  }
+
+  .image-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .image-item .image-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: opacity var(--transition-base);
+  }
+
+  .image-item:hover .image-overlay {
+    opacity: 1;
+  }
+
+  .image-actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+
+  .image-action-btn {
+    width: 32px;
+    height: 32px;
+    border: none;
+    border-radius: var(--radius-sm);
+    background: white;
+    color: var(--color-text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-base);
+  }
+
+  .image-action-btn:hover {
+    background: var(--color-primary);
+    color: white;
+  }
+
+  .url-input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .loading-spinner {
+    text-align: center;
+    padding: 2rem;
+    color: var(--color-text-muted);
+  }
+
+  @media (max-width: 1024px) {
+    .editor-layout {
+      grid-template-columns: 1fr;
+    }
+
+    .editor-main {
+      border-right: none;
+      border-bottom: 1px solid var(--color-border);
+    }
+  }
+
+  @media (max-width: 768px) {
+    .editor-header {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 1rem;
+    }
+
+    .header-actions {
+      width: 100%;
+    }
+
+    .header-actions .btn {
+      flex: 1;
+    }
+  }
+</style>
+
+<script>
+  // Get existing data for JavaScript
+  const originalSlug = document.getElementById('slug-preview').textContent;
+  
+  // WYSIWYG Editor functionality
+  const editor = document.getElementById('editor');
+  const contentInput = document.getElementById('content');
+  const titleInput = document.getElementById('title');
+  const slugPreview = document.getElementById('slug-preview');
+  
+  // Generate slug from title
+  titleInput?.addEventListener('input', (e) => {
+    const slug = e.target.value
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, '')
+      .replace(/\s+/g, '-')
+      .replace(/-+/g, '-')
+      .trim();
+    slugPreview.textContent = slug || originalSlug;
+  });
+
+  // Set current editor for cleanup tools and text layouts
+  if (window.setCurrentEditor) {
+    window.setCurrentEditor(editor);
+  }
+  window.currentEditor = editor;
+  
+  // Toolbar commands
+  document.querySelectorAll('.toolbar-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      const command = btn.dataset.command;
+      const value = btn.dataset.value || null;
+      
+      // Skip special buttons
+      if (btn.id === 'link-button' || btn.id === 'cleanup-tools' || btn.id === 'insert-image' || btn.id === 'insert-layout') {
+        return;
+      }
+      
+      if (command) {
+        document.execCommand(command, false, value);
+      }
+      
+      editor.focus();
+    });
+  });
+  
+  // Font family selector
+  document.getElementById('font-family')?.addEventListener('change', (e) => {
+    const fontFamily = e.target.value;
+    if (fontFamily) {
+      document.execCommand('fontName', false, fontFamily);
+      editor.focus();
+    }
+  });
+
+  // Font size selector
+  document.getElementById('font-size')?.addEventListener('change', (e) => {
+    const fontSize = e.target.value;
+    if (fontSize) {
+      const selection = window.getSelection();
+      if (selection.rangeCount > 0) {
+        const range = selection.getRangeAt(0);
+        const span = document.createElement('span');
+        span.style.fontSize = fontSize;
+        
+        try {
+          range.surroundContents(span);
+        } catch (e) {
+          // If surroundContents fails, use insertHTML
+          const selectedText = range.toString();
+          document.execCommand('insertHTML', false, `<span style="font-size: ${fontSize}">${selectedText}</span>`);
+        }
+      }
+      editor.focus();
+    }
+  });
+
+  // Text color picker
+  document.getElementById('text-color')?.addEventListener('change', (e) => {
+    document.execCommand('foreColor', false, e.target.value);
+    editor.focus();
+  });
+
+  // Background color picker
+  document.getElementById('bg-color')?.addEventListener('change', (e) => {
+    document.execCommand('hiliteColor', false, e.target.value);
+    editor.focus();
+  });
+  
+  // Link button handler
+  document.getElementById('link-button')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window.openLinkModal) {
+      window.openLinkModal();
+    }
+  });
+  
+  // Cleanup tools button
+  document.getElementById('cleanup-tools')?.addEventListener('click', (e) => {
+    e.preventDefault();
+    if (window.showCleanupPanel) {
+      window.showCleanupPanel();
+    }
+  });
+
+  // Sync editor content to hidden textarea
+  editor?.addEventListener('input', () => {
+    contentInput.value = editor.innerHTML;
+  });
+
+  // Image upload modal
+  const imageModal = document.getElementById('image-modal');
+  const selectImageBtn = document.getElementById('select-image');
+  const insertImageBtn = document.getElementById('insert-image');
+  const modalClose = document.querySelector('.modal-close');
+  
+  selectImageBtn?.addEventListener('click', () => {
+    imageModal.classList.add('active');
+  });
+  
+  insertImageBtn?.addEventListener('click', () => {
+    imageModal.classList.add('active');
+  });
+  
+  modalClose?.addEventListener('click', () => {
+    imageModal.classList.remove('active');
+  });
+
+  // Tag management
+  const tagInput = document.getElementById('tag-input');
+  const selectedTags = document.getElementById('selected-tags');
+  const selectedTagIds = new Set();
+  
+  // Initialize selected tag IDs from existing tags
+  document.querySelectorAll('input[name="tags[]"]').forEach(input => {
+    selectedTagIds.add(input.value);
+  });
+  
+  document.querySelectorAll('.tag-suggestion').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tagId = btn.dataset.id;
+      const tagName = btn.dataset.name;
+      
+      if (!selectedTagIds.has(tagId)) {
+        selectedTagIds.add(tagId);
+        
+        const tagEl = document.createElement('div');
+        tagEl.className = 'selected-tag';
+        tagEl.innerHTML = `
+          ${tagName}
+          <button type="button" onclick="removeTag('${tagId}', this)">×</button>
+          <input type="hidden" name="tags[]" value="${tagId}" />
+        `;
+        selectedTags.appendChild(tagEl);
+        
+        btn.style.display = 'none';
+      }
+    });
+  });
+
+  window.removeTag = (tagId, btn) => {
+    selectedTagIds.delete(tagId);
+    btn.parentElement.remove();
+    document.querySelector(`.tag-suggestion[data-id="${tagId}"]`).style.display = '';
+  };
+
+  // Character counts
+  const metaTitleInput = document.getElementById('meta_title');
+  const metaDescInput = document.getElementById('meta_description');
+  const metaTitleCount = document.getElementById('meta-title-count');
+  const metaDescCount = document.getElementById('meta-desc-count');
+  
+  metaTitleInput?.addEventListener('input', (e) => {
+    metaTitleCount.textContent = e.target.value.length;
+  });
+  
+  metaDescInput?.addEventListener('input', (e) => {
+    metaDescCount.textContent = e.target.value.length;
+  });
+
+  // Date picker functionality
+  const publishDateInput = document.getElementById('published_at');
+  const setNowBtn = document.getElementById('set-now');
+  
+  setNowBtn?.addEventListener('click', () => {
+    const now = new Date();
+    const formatted = now.getFullYear() + '-' + 
+      String(now.getMonth() + 1).padStart(2, '0') + '-' +
+      String(now.getDate()).padStart(2, '0') + 'T' +
+      String(now.getHours()).padStart(2, '0') + ':' +
+      String(now.getMinutes()).padStart(2, '0');
+    publishDateInput.value = formatted;
+  });
+
+  // Form submission
+  const form = document.getElementById('blog-form');
+  const saveDraftBtn = document.getElementById('save-draft');
+  
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await submitForm('published');
+  });
+  
+  saveDraftBtn?.addEventListener('click', async () => {
+    await submitForm('draft');
+  });
+  
+  async function submitForm(status) {
+    const formData = new FormData(form);
+    formData.append('status', status);
+    formData.append('content', editor.innerHTML);
+    
+    // Add the slug based on the title
+    const slugValue = slugPreview.textContent;
+    formData.append('slug', slugValue !== originalSlug ? slugValue : originalSlug);
+    
+    // Log for debugging
+    console.log('Updating post with:', {
+      post_id: formData.get('post_id'),
+      title: formData.get('title'),
+      slug: formData.get('slug'),
+      status: formData.get('status'),
+      content: formData.get('content')?.toString().substring(0, 100)
+    });
+    
+    try {
+      const response = await fetch('/admin/api/blog/update.json', {
+        method: 'POST',
+        body: formData
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        window.location.href = `/admin/blog?updated=true`;
+      } else {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        console.error('Update error:', errorData);
+        alert(`Failed to update post: ${errorData.error || 'Unknown error'}`);
+      }
+    } catch (error) {
+      console.error('Error updating post:', error);
+      alert(`Error updating post: ${error.message}`);
+    }
+  }
+
+  // Tab functionality
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      // Remove active class from all tabs and content
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+      
+      // Add active class to clicked tab and corresponding content
+      btn.classList.add('active');
+      const tabName = btn.dataset.tab;
+      document.getElementById(`${tabName}-tab`).classList.add('active');
+      
+      // Load media library when tab is opened
+      if (tabName === 'library') {
+        loadMediaLibrary();
+      }
+    });
+  });
+
+  // Enhanced image upload with progress
+  const imageUpload = document.getElementById('image-upload');
+  const uploadProgress = document.getElementById('upload-progress');
+  
+  imageUpload?.addEventListener('change', async (e) => {
+    const files = Array.from(e.target.files);
+    if (!files.length) return;
+    
+    uploadProgress.innerHTML = '';
+    
+    for (const file of files) {
+      await uploadSingleFile(file);
+    }
+    
+    // Clear the input
+    imageUpload.value = '';
+  });
+  
+  async function uploadSingleFile(file) {
+    const progressItem = document.createElement('div');
+    progressItem.className = 'progress-item';
+    progressItem.innerHTML = `
+      <span>${file.name}</span>
+      <div class="progress-bar">
+        <div class="progress-fill" style="width: 0%"></div>
+      </div>
+      <span class="progress-status">Uploading...</span>
+    `;
+    uploadProgress.appendChild(progressItem);
+    
+    const progressFill = progressItem.querySelector('.progress-fill');
+    const progressStatus = progressItem.querySelector('.progress-status');
+    
+    const formData = new FormData();
+    formData.append('image', file);
+    
+    try {
+      // Simulate progress for better UX
+      progressFill.style.width = '30%';
+      
+      const response = await fetch('/admin/api/upload-image.json', {
+        method: 'POST',
+        body: formData
+      });
+      
+      progressFill.style.width = '90%';
+      
+      if (response.ok) {
+        const data = await response.json();
+        progressFill.style.width = '100%';
+        progressStatus.textContent = 'Complete';
+        progressStatus.style.color = 'var(--color-success)';
+        
+        // Add to the current editor context
+        currentUploadContext = data;
+        
+        // If this is for the featured image
+        if (currentImageTarget === 'featured') {
+          document.getElementById('cover_image').value = data.url;
+          document.getElementById('image-preview').innerHTML = `<img src="${data.url}" alt="" />`;
+        }
+        
+        setTimeout(() => {
+          progressItem.remove();
+        }, 2000);
+      } else {
+        const errorData = await response.json();
+        progressStatus.textContent = `Error: ${errorData.error}`;
+        progressStatus.style.color = 'var(--color-error)';
+      }
+    } catch (error) {
+      progressStatus.textContent = `Error: ${error.message}`;
+      progressStatus.style.color = 'var(--color-error)';
+    }
+  }
+  
+  // Track upload context
+  let currentUploadContext = null;
+  let currentImageTarget = 'editor'; // 'editor' or 'featured'
+  
+  // Load media library
+  async function loadMediaLibrary() {
+    const gallery = document.getElementById('image-gallery');
+    gallery.innerHTML = '<div class="loading-spinner">Loading images...</div>';
+    
+    try {
+      const response = await fetch('/admin/api/list-images.json', {
+        credentials: 'same-origin'
+      });
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success && data.images.length > 0) {
+          gallery.innerHTML = data.images.map(image => `
+            <div class="image-item" onclick="selectImageFromLibrary('${image.url}', '${image.name}')">
+              <img src="${image.url}" alt="${image.name}" />
+              <div class="image-overlay">
+                <div class="image-actions">
+                  <button class="image-action-btn" onclick="event.stopPropagation(); selectImageFromLibrary('${image.url}', '${image.name}')" title="Select">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="9 11 12 14 22 4"></polyline>
+                      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path>
+                    </svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          `).join('');
+        } else {
+          gallery.innerHTML = '<div class="loading-spinner">No images found. Upload some images first.</div>';
+        }
+      } else {
+        gallery.innerHTML = '<div class="loading-spinner">Error loading images</div>';
+      }
+    } catch (error) {
+      gallery.innerHTML = '<div class="loading-spinner">Error loading images</div>';
+    }
+  }
+  
+  // Make loadMediaLibrary globally accessible
+  window.loadMediaLibrary = loadMediaLibrary;
+  
+  // Select image from library
+  function selectImageFromLibrary(url, name) {
+    insertImageIntoEditor(url, name);
+    imageModal.classList.remove('active');
+  }
+  
+  // Make function globally accessible
+  window.selectImageFromLibrary = selectImageFromLibrary;
+  
+  // Insert image from URL
+  document.getElementById('insert-url-image')?.addEventListener('click', () => {
+    const url = document.getElementById('image-url').value;
+    const alt = document.getElementById('image-alt').value;
+    
+    if (!url) {
+      alert('Please enter an image URL');
+      return;
+    }
+    
+    insertImageIntoEditor(url, alt);
+    imageModal.classList.remove('active');
+    
+    // Clear inputs
+    document.getElementById('image-url').value = '';
+    document.getElementById('image-alt').value = '';
+  });
+  
+  // Insert image into editor
+  function insertImageIntoEditor(url, alt = '') {
+    if (currentImageTarget === 'featured') {
+      document.getElementById('cover_image').value = url;
+      document.getElementById('image-preview').innerHTML = `<img src="${url}" alt="${alt}" />`;
+    } else {
+      // Insert into WYSIWYG editor with enhanced styling
+      editor.focus();
+      
+      // Create a wrapper div for the image with a paragraph after it
+      const imgHtml = `<div class="blog-image-wrapper" style="margin: 1rem 0;"><img src="${url}" alt="${alt || ''}" class="blog-image editable" style="max-width: 100%; height: auto; cursor: pointer; display: block;" /></div><p><br></p>`;
+      
+      // Use execCommand for better compatibility
+      document.execCommand('insertHTML', false, imgHtml);
+      
+      // Move cursor to the new paragraph
+      setTimeout(() => {
+        const selection = window.getSelection();
+        const paragraphs = editor.querySelectorAll('p');
+        if (paragraphs.length > 0) {
+          const lastP = paragraphs[paragraphs.length - 1];
+          const range = document.createRange();
+          range.selectNodeContents(lastP);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      }, 10);
+      
+      // Update content textarea
+      contentInput.value = editor.innerHTML;
+    }
+  }
+  
+  // Track which image target we're working with
+  selectImageBtn?.addEventListener('click', () => {
+    currentImageTarget = 'featured';
+    imageModal.classList.add('active');
+  });
+  
+  insertImageBtn?.addEventListener('click', () => {
+    currentImageTarget = 'editor';
+    imageModal.classList.add('active');
+  });
+  
+  // Insert layout template button
+  document.getElementById('insert-layout')?.addEventListener('click', () => {
+    if (window.showLayoutTemplates) {
+      window.showLayoutTemplates();
+    }
+  });
+  
+  // Text columns button
+  document.getElementById('text-columns')?.addEventListener('click', () => {
+    if (window.showTextLayouts) {
+      window.showTextLayouts();
+    }
+  });
+  
+  // Text alignment button
+  document.getElementById('text-align')?.addEventListener('click', () => {
+    if (window.showAlignmentToolbar) {
+      window.showAlignmentToolbar();
+    }
+  });
+  
+  // Track selected image
+  let selectedImage = null;
+  
+  // Handle clicks on images
+  editor.addEventListener('click', (e) => {
+    if (e.target.tagName === 'IMG') {
+      if (e.target.classList.contains('template-image')) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        // Store reference to the image being replaced
+        window.templateImageToReplace = e.target;
+        currentImageTarget = 'template';
+        
+        // Open image modal
+        imageModal.classList.add('active');
+        
+        // Load media library
+        if (window.loadMediaLibrary) {
+          window.loadMediaLibrary();
+        }
+      } else {
+        // Select the image
+        selectedImage = e.target;
+        
+        // Add selection styling
+        document.querySelectorAll('.selected-image').forEach(img => 
+          img.classList.remove('selected-image')
+        );
+        e.target.classList.add('selected-image');
+        
+        // Show image toolbar for editable images
+        if (e.target.classList.contains('editable') && window.showImageToolbar) {
+          window.showImageToolbar(e.target);
+        }
+      }
+    } else {
+      // Deselect image when clicking elsewhere
+      selectedImage = null;
+      document.querySelectorAll('.selected-image').forEach(img => 
+        img.classList.remove('selected-image')
+      );
+    }
+  });
+  
+  // Handle keyboard shortcuts for image deletion
+  editor.addEventListener('keydown', (e) => {
+    if ((e.key === 'Delete' || e.key === 'Backspace') && selectedImage) {
+      e.preventDefault();
+      
+      // Find parent container if exists
+      const parent = selectedImage.closest('.blog-layout, .blog-gallery, .blog-image-wrapper, figure, .image-with-overlay');
+      
+      if (parent) {
+        // Check if parent has other content
+        const hasOtherContent = Array.from(parent.children).some(child => 
+          child !== selectedImage && child.textContent.trim() !== ''
+        );
+        
+        if (!hasOtherContent) {
+          parent.remove();
+        } else {
+          selectedImage.remove();
+        }
+      } else {
+        selectedImage.remove();
+      }
+      
+      selectedImage = null;
+      contentInput.value = editor.innerHTML;
+    }
+  });
+  
+  // Handle right-click on images for overlay options
+  editor.addEventListener('contextmenu', (e) => {
+    if (e.target.tagName === 'IMG') {
+      e.preventDefault();
+      if (window.openOverlayModal) {
+        window.openOverlayModal(e.target);
+      }
+    }
+  });
+  
+  // Store original insertImageIntoEditor function
+  const originalInsertImage = insertImageIntoEditor;
+  
+  // Override insertImageIntoEditor to handle template replacement
+  window.insertImageIntoEditor = function(url, alt) {
+    if (currentImageTarget === 'template' && window.templateImageToReplace) {
+      // Replace template image
+      window.templateImageToReplace.src = url;
+      window.templateImageToReplace.alt = alt || 'Image';
+      window.templateImageToReplace.classList.remove('template-image');
+      window.templateImageToReplace.classList.add('editable');
+      window.templateImageToReplace = null;
+      currentImageTarget = 'editor';
+      
+      // Update content
+      contentInput.value = editor.innerHTML;
+    } else {
+      // Use original function
+      originalInsertImage(url, alt);
+    }
+  };
+  
+  // Update insertImageIntoEditor reference
+  insertImageIntoEditor = window.insertImageIntoEditor;
+  
+  // Fix for nested component editing issues
+  function fixNestedComponents() {
+    // Remove nested contenteditable attributes
+    const nestedEditables = editor.querySelectorAll('[contenteditable]');
+    nestedEditables.forEach(el => {
+      if (el !== editor) {
+        el.removeAttribute('contenteditable');
+      }
+    });
+
+    // Unwrap unnecessary wrapper divs
+    const wrappers = editor.querySelectorAll('.blog-layout, .blog-gallery, .image-with-overlay');
+    wrappers.forEach(wrapper => {
+      // Check if wrapper is truly stuck (not responding to clicks)
+      wrapper.style.pointerEvents = 'auto';
+      wrapper.style.userSelect = 'auto';
+      
+      // Add a click handler to make nested components editable
+      wrapper.addEventListener('click', function(e) {
+        e.stopPropagation();
+        // Make the content inside editable
+        const editableContent = this.querySelector('p, span, div:not(.blog-layout):not(.blog-gallery)');
+        if (editableContent) {
+          editableContent.focus();
+          // Select the content for easy editing
+          const range = document.createRange();
+          range.selectNodeContents(editableContent);
+          const selection = window.getSelection();
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      });
+    });
+
+    // Fix stuck text elements
+    const textElements = editor.querySelectorAll('p, span, h1, h2, h3, h4, h5, h6');
+    textElements.forEach(el => {
+      // Ensure text elements are selectable
+      el.style.userSelect = 'text';
+      el.style.pointerEvents = 'auto';
+      
+      // Remove any inline contenteditable that might interfere
+      if (el.hasAttribute('contenteditable') && el !== editor) {
+        el.removeAttribute('contenteditable');
+      }
+    });
+  }
+
+  // Run fix periodically and on content changes
+  editor.addEventListener('input', () => {
+    setTimeout(fixNestedComponents, 100);
+  });
+
+  // Run fix on paste
+  editor.addEventListener('paste', () => {
+    setTimeout(fixNestedComponents, 100);
+  });
+
+  // Initial fix
+  setTimeout(fixNestedComponents, 500);
+
+  // Drag and drop functionality
+  const uploadArea = document.getElementById('upload-area');
+  
+  uploadArea?.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    uploadArea.classList.add('drag-over');
+  });
+  
+  uploadArea?.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('drag-over');
+  });
+  
+  uploadArea?.addEventListener('drop', (e) => {
+    e.preventDefault();
+    uploadArea.classList.remove('drag-over');
+    
+    const files = Array.from(e.dataTransfer.files).filter(file => 
+      file.type.startsWith('image/')
+    );
+    
+    if (files.length > 0) {
+      // Trigger upload for dropped files
+      files.forEach(file => uploadSingleFile(file));
+    }
+  });
+</script>
