@@ -372,6 +372,41 @@ if (post.published_at) {
             </div>
           </div>
 
+          <!-- Schema / JSON-LD Settings -->
+          <div class="sidebar-section">
+            <h3>Schema / JSON-LD</h3>
+            <div class="form-group">
+              <label for="schema_type">Article Type</label>
+              <select id="schema_type" name="schema_type" class="form-input">
+                <option value="Article">Article</option>
+                <option value="BlogPosting" selected>Blog Post</option>
+                <option value="NewsArticle">News Article</option>
+                <option value="TechArticle">Technical Article</option>
+                <option value="HowTo">How-To Guide</option>
+                <option value="Review">Review</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="reading_time">Reading Time (min)</label>
+              <input type="number" id="reading_time" name="reading_time" class="form-input" min="1" max="120" placeholder="Auto-calculated" />
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="schema_faq" name="schema_faq" />
+                <span>Include FAQ Schema</span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="schema_howto" name="schema_howto" />
+                <span>Include HowTo Schema</span>
+              </label>
+            </div>
+            <button type="button" id="preview-schema" class="btn btn-secondary btn-block btn-sm">
+              Preview JSON-LD
+            </button>
+          </div>
+
           <!-- Publishing Options -->
           <div class="sidebar-section">
             <h3>Publishing Options</h3>
@@ -1908,5 +1943,52 @@ if (post.published_at) {
       // Trigger upload for dropped files
       files.forEach(file => uploadSingleFile(file));
     }
+  });
+
+  // JSON-LD Schema
+  function calculateReadingTime(content) {
+    const text = content.replace(/<[^>]*>/g, '');
+    return Math.max(1, Math.ceil(text.trim().split(/\s+/).length / 200));
+  }
+  
+  const readingTimeInput = document.getElementById('reading_time');
+  if (readingTimeInput && editor) {
+    readingTimeInput.value = calculateReadingTime(editor.innerHTML);
+  }
+  
+  function detectFAQContent(content) {
+    const doc = new DOMParser().parseFromString(content, 'text/html');
+    const faqs = [];
+    doc.querySelectorAll('h2, h3, h4').forEach(h => {
+      if (h.textContent.includes('?')) {
+        const a = h.nextElementSibling;
+        if (a?.tagName === 'P') faqs.push({ q: h.textContent.trim(), a: a.textContent.trim() });
+      }
+    });
+    return faqs;
+  }
+  
+  function generateJSONLD() {
+    const type = document.getElementById('schema_type')?.value || 'BlogPosting';
+    const title = titleInput?.value || '';
+    const desc = document.getElementById('meta_description')?.value || '';
+    const time = readingTimeInput?.value || calculateReadingTime(editor?.innerHTML || '');
+    const img = document.getElementById('cover_image')?.value || '';
+    const faqs = document.getElementById('schema_faq')?.checked ? detectFAQContent(editor?.innerHTML || '') : [];
+    
+    return {
+      article: { '@context': 'https://schema.org', '@type': type, headline: title.substring(0, 110), description: desc, image: img || undefined, timeRequired: `PT${time}M` },
+      faq: faqs.length ? { '@context': 'https://schema.org', '@type': 'FAQPage', mainEntity: faqs.map(f => ({ '@type': 'Question', name: f.q, acceptedAnswer: { '@type': 'Answer', text: f.a } })) } : null
+    };
+  }
+  
+  document.getElementById('preview-schema')?.addEventListener('click', () => {
+    const s = generateJSONLD();
+    const m = document.createElement('div');
+    m.className = 'modal active';
+    m.style.zIndex = '2000';
+    m.innerHTML = `<div class="modal-content" style="max-width:700px"><div class="modal-header"><h2>JSON-LD Preview</h2><button class="modal-close" onclick="this.closest('.modal').remove()">×</button></div><div class="modal-body"><pre style="background:var(--color-background);padding:1rem;border-radius:8px;overflow:auto;font-size:0.75rem">${JSON.stringify(s.article, null, 2)}</pre>${s.faq ? `<pre style="background:var(--color-background);padding:1rem;border-radius:8px;overflow:auto;font-size:0.75rem;margin-top:1rem">${JSON.stringify(s.faq, null, 2)}</pre>` : ''}</div></div>`;
+    document.body.appendChild(m);
+    m.onclick = e => { if (e.target === m) m.remove(); };
   });
 </script>

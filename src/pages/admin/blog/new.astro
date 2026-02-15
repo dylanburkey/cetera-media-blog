@@ -305,6 +305,42 @@ try {
             </div>
           </div>
 
+          <!-- Schema / JSON-LD Settings -->
+          <div class="sidebar-section">
+            <h3>Schema / JSON-LD</h3>
+            <div class="form-group">
+              <label for="schema_type">Article Type</label>
+              <select id="schema_type" name="schema_type" class="form-input">
+                <option value="Article">Article</option>
+                <option value="BlogPosting" selected>Blog Post</option>
+                <option value="NewsArticle">News Article</option>
+                <option value="TechArticle">Technical Article</option>
+                <option value="HowTo">How-To Guide</option>
+                <option value="Review">Review</option>
+              </select>
+              <span class="help-text">Schema.org article type</span>
+            </div>
+            <div class="form-group">
+              <label for="reading_time">Reading Time (min)</label>
+              <input type="number" id="reading_time" name="reading_time" class="form-input" min="1" max="120" placeholder="Auto-calculated" />
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="schema_faq" name="schema_faq" />
+                <span>Include FAQ Schema</span>
+              </label>
+            </div>
+            <div class="form-group">
+              <label class="checkbox-label">
+                <input type="checkbox" id="schema_howto" name="schema_howto" />
+                <span>Include HowTo Schema</span>
+              </label>
+            </div>
+            <button type="button" id="preview-schema" class="btn btn-secondary btn-block btn-sm">
+              Preview JSON-LD
+            </button>
+          </div>
+
           <!-- Publishing Options -->
           <div class="sidebar-section">
             <h3>Publishing Options</h3>
@@ -1924,5 +1960,115 @@ try {
       // Trigger upload for dropped files
       files.forEach(file => uploadSingleFile(file));
     }
+  });
+
+  // ============================================
+  // JSON-LD Schema Generation
+  // ============================================
+  
+  function calculateReadingTime(content) {
+    const text = content.replace(/<[^>]*>/g, '');
+    const words = text.trim().split(/\s+/).length;
+    return Math.max(1, Math.ceil(words / 200));
+  }
+  
+  editor?.addEventListener('input', () => {
+    const readingTimeInput = document.getElementById('reading_time');
+    if (readingTimeInput && !readingTimeInput.dataset.userEdited) {
+      readingTimeInput.value = calculateReadingTime(editor.innerHTML);
+    }
+  });
+  
+  document.getElementById('reading_time')?.addEventListener('input', (e) => {
+    e.target.dataset.userEdited = 'true';
+  });
+  
+  function detectFAQContent(content) {
+    const doc = new DOMParser().parseFromString(content, 'text/html');
+    const faqs = [];
+    doc.querySelectorAll('h2, h3, h4').forEach(heading => {
+      const text = heading.textContent.trim();
+      if (text.includes('?')) {
+        const answer = heading.nextElementSibling;
+        if (answer && answer.tagName === 'P') {
+          faqs.push({ question: text, answer: answer.textContent.trim() });
+        }
+      }
+    });
+    return faqs;
+  }
+  
+  function detectHowToContent(content) {
+    const doc = new DOMParser().parseFromString(content, 'text/html');
+    const steps = [];
+    doc.querySelectorAll('ol li').forEach((item, i) => {
+      steps.push({ position: i + 1, name: `Step ${i + 1}`, text: item.textContent.trim() });
+    });
+    return steps;
+  }
+  
+  function generateJSONLD() {
+    const schemaType = document.getElementById('schema_type')?.value || 'BlogPosting';
+    const title = titleInput?.value || 'Untitled';
+    const description = document.getElementById('meta_description')?.value || '';
+    const readingTime = document.getElementById('reading_time')?.value || calculateReadingTime(editor?.innerHTML || '');
+    const coverImage = document.getElementById('cover_image')?.value || '';
+    const includeFAQ = document.getElementById('schema_faq')?.checked;
+    const includeHowTo = document.getElementById('schema_howto')?.checked;
+    
+    const schema = {
+      '@context': 'https://schema.org',
+      '@type': schemaType,
+      headline: title.substring(0, 110),
+      description: description,
+      image: coverImage || undefined,
+      datePublished: new Date().toISOString(),
+      wordCount: editor ? editor.textContent.trim().split(/\s+/).length : 0,
+      timeRequired: `PT${readingTime}M`
+    };
+    
+    const faqs = includeFAQ ? detectFAQContent(editor?.innerHTML || '') : [];
+    const faqSchema = faqs.length > 0 ? {
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: faqs.map(f => ({
+        '@type': 'Question', name: f.question,
+        acceptedAnswer: { '@type': 'Answer', text: f.answer }
+      }))
+    } : null;
+    
+    const steps = includeHowTo ? detectHowToContent(editor?.innerHTML || '') : [];
+    const howToSchema = steps.length > 0 ? {
+      '@context': 'https://schema.org',
+      '@type': 'HowTo',
+      name: title,
+      step: steps.map(s => ({ '@type': 'HowToStep', position: s.position, name: s.name, text: s.text }))
+    } : null;
+    
+    return { article: schema, faq: faqSchema, howTo: howToSchema };
+  }
+  
+  document.getElementById('preview-schema')?.addEventListener('click', () => {
+    const schemas = generateJSONLD();
+    const modal = document.createElement('div');
+    modal.className = 'modal active';
+    modal.style.zIndex = '2000';
+    modal.innerHTML = `
+      <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+          <h2>JSON-LD Schema Preview</h2>
+          <button type="button" class="modal-close" onclick="this.closest('.modal').remove()">×</button>
+        </div>
+        <div class="modal-body">
+          <h4>Article Schema (${schemas.article['@type']})</h4>
+          <pre style="background: var(--color-background); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.75rem; max-height: 250px;"><code>${JSON.stringify(schemas.article, null, 2)}</code></pre>
+          ${schemas.faq ? `<h4>FAQ Schema (${schemas.faq.mainEntity.length} questions)</h4><pre style="background: var(--color-background); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.75rem; max-height: 150px;"><code>${JSON.stringify(schemas.faq, null, 2)}</code></pre>` : '<p style="color: #888; font-size: 0.875rem;">No FAQ content detected.</p>'}
+          ${schemas.howTo ? `<h4>HowTo Schema (${schemas.howTo.step.length} steps)</h4><pre style="background: var(--color-background); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.75rem; max-height: 150px;"><code>${JSON.stringify(schemas.howTo, null, 2)}</code></pre>` : '<p style="color: #888; font-size: 0.875rem;">No HowTo content detected.</p>'}
+          <p style="font-size: 0.75rem; color: #888; margin-top: 1rem;">Test at <a href="https://search.google.com/test/rich-results" target="_blank">Google Rich Results Test</a></p>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
   });
 </script>

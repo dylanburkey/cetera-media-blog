@@ -55,16 +55,38 @@
   font-style: italic;
 }
 
-/* Layout components */
+/* Layout components - with overflow protection */
 .blog-layout {
   margin: 2rem 0;
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .blog-layout.image-left,
 .blog-layout.image-right {
   display: flex;
   gap: 2rem;
-  align-items: center;
+  align-items: flex-start;
+  overflow: hidden;
+}
+
+/* Constrain images inside flex layouts */
+.blog-layout.image-left img,
+.blog-layout.image-right img {
+  max-width: 40%;
+  width: 40%;
+  height: auto;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+/* Text content in layouts should flex and not overflow */
+.blog-layout.image-left > div,
+.blog-layout.image-right > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .blog-layout.split-50-50 {
@@ -72,26 +94,52 @@
   grid-template-columns: 1fr 1fr;
   gap: 2rem;
   align-items: center;
+  overflow: hidden;
+}
+
+/* Constrain images in grid layouts */
+.blog-layout.split-50-50 img {
+  max-width: 100%;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
 }
 
 .blog-gallery {
   display: grid;
   gap: 1rem;
   margin: 2rem 0;
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Ensure gallery images stay contained */
+.blog-gallery img {
+  max-width: 100%;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
 }
 
 .blog-gallery figure {
   margin: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .blog-hero {
   margin: 3rem 0;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .blog-hero img {
   width: 100%;
+  max-width: 100%;
   height: auto;
   border-radius: var(--radius-lg);
+  display: block;
 }
 
 .blog-quote {
@@ -103,6 +151,24 @@
   border-left: 4px solid var(--color-primary);
   border-radius: var(--radius-md);
   margin: 2rem 0;
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+/* Quote image constraint */
+.blog-quote img {
+  flex-shrink: 0;
+  max-width: 80px;
+  width: 80px;
+  height: 80px;
+  object-fit: cover;
+}
+
+.blog-quote > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .blog-quote blockquote {
@@ -122,11 +188,30 @@
 
 .blog-comparison {
   margin: 2rem 0;
+  overflow: hidden;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.blog-comparison > div {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  gap: 1rem;
+  align-items: center;
 }
 
 .blog-comparison figure {
   margin: 0;
   text-align: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.blog-comparison img {
+  max-width: 100%;
+  width: 100%;
+  height: auto;
+  object-fit: cover;
 }
 
 .blog-comparison figcaption {
@@ -140,6 +225,12 @@
   .blog-layout.image-left,
   .blog-layout.image-right {
     flex-direction: column;
+  }
+  
+  .blog-layout.image-left img,
+  .blog-layout.image-right img {
+    max-width: 100%;
+    width: 100%;
   }
   
   .blog-layout.split-50-50 {
@@ -173,8 +264,6 @@
   background: rgba(255, 255, 255, 0.05);
 }
 
-/* Light mode blog quote styles removed */
-
 /* WYSIWYG Editor specific styles */
 .wysiwyg-editor .blog-image {
   outline: 1px dashed transparent;
@@ -189,9 +278,55 @@
   position: relative;
   outline: 1px dashed var(--color-border);
   padding: 0.5rem;
+  overflow: hidden;
+  max-width: 100%;
 }
 
 .wysiwyg-editor .blog-layout:hover {
   outline-color: var(--color-primary);
   background: var(--color-primary-alpha-5);
+}
+
+/* Ensure flex layouts don't overflow in editor */
+.wysiwyg-editor .blog-layout.image-left,
+.wysiwyg-editor .blog-layout.image-right {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.wysiwyg-editor .blog-layout.image-left img,
+.wysiwyg-editor .blog-layout.image-right img {
+  width: 40%;
+  max-width: 40%;
+  flex-shrink: 0;
+}
+
+.wysiwyg-editor .blog-layout > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: break-word;
+}
+
+/* Gallery overflow fix */
+.wysiwyg-editor .blog-gallery {
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.wysiwyg-editor .blog-gallery img {
+  max-width: 100%;
+  width: 100%;
+  height: auto;
+}
+
+/* Comparison overflow fix */
+.wysiwyg-editor .blog-comparison {
+  overflow: hidden;
+  max-width: 100%;
+}
+
+.wysiwyg-editor .blog-comparison img {
+  max-width: 100%;
+  width: 100%;
 }
