@@ -13,6 +13,64 @@ A lightweight, full-featured blog CMS built with Astro 5.x, Cloudflare D1, and R
 
 ---
 
+## 🔗 Web3 Ready (No, You Don't Need Next.js)
+
+**The myth:** You need Next.js for Web3 development.
+
+**The reality:** Web3 libraries are just JavaScript. They don't care what framework you use.
+
+### Why the myth exists:
+- Most Web3 tutorials default to Next.js (author familiarity, not requirement)
+- Starter kits like RainbowKit and scaffold-eth ship Next.js examples first
+- Cargo culting: "Uniswap uses Next.js, so I should too"
+
+### What Web3 apps actually do:
+1. Connect a wallet → JS SDK call
+2. Read from blockchain → RPC fetch
+3. Write to blockchain → Sign + send transaction
+4. Display data → Any framework
+
+**None of this requires Next.js.**
+
+### Web3 libraries work everywhere:
+
+| Library | Framework Requirement |
+|---------|----------------------|
+| ethers.js | None (vanilla JS) |
+| viem | None (vanilla JS) |
+| wagmi | React hooks (works in Astro islands) |
+| web3.js | None (vanilla JS) |
+| WalletConnect | None (framework-agnostic) |
+| RainbowKit | React (works in Astro islands) |
+
+### Why Astro is often *better* for Web3:
+
+| | Astro | Next.js |
+|---|---|---|
+| **Mint page JS** | ~5 KB (just wallet SDK) | 150+ KB (React runtime) |
+| **Load time** | Faster (less JS to parse) | Slower |
+| **Mobile wallet browsers** | Snappy | Sluggish |
+| **Complexity** | Ship what you need | Ship everything |
+
+**Use Astro with React islands** for wallet components. Get the React ecosystem (wagmi, RainbowKit) without shipping 150 KB to every page.
+
+```astro
+---
+// Only this component ships React to the client
+import { ConnectButton } from '../components/ConnectButton';
+---
+
+<html>
+  <body>
+    <h1>Mint Page</h1>
+    <!-- React island - only loads JS for this component -->
+    <ConnectButton client:load />
+  </body>
+</html>
+```
+
+---
+
 ## 📊 Performance Benchmarks
 
 ### Network Performance (Live Tests - February 2026)
